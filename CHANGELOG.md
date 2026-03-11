@@ -34,3 +34,7 @@ feat(config): initial baseline configuration for REDCap and SMS Works
 ## v0.1 - 2025-10-01
 chore: initial project skeleton (.gitignore, README, structure)
 
+## v1.3-feature (2026-03-11)
+- FireText inbound: rate-limit clarified and improved diagnostics.
+- (Add any other bullets you want the team to see.)
+
