@@ -1,0 +1,30 @@
+@'
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# PHP
+archive/
+certs/
+vendor/
+composer.lock
+
+
+# Logs & state snapshots
+logs/
+*.log
+*.log.*
+*.tmp
+*.bak
+
+# Generated state used by outbound/inbound
+outbound_state.json
+help_state.json
+Linux(cron).txt
+rebuild-history.ps1
+
+# Any backup zips we create during this plan
+_snapshots/
+'@ | Out-File -Encoding UTF8 .gitignore
