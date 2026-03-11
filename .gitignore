@@ -1,5 +1,5 @@
 @'
-# OS / IDE
+# OS / IDE / Folders
 .DS_Store
 Thumbs.db
 .vscode/
@@ -11,7 +11,6 @@ certs/
 vendor/
 composer.lock
 
-
 # Logs & state snapshots
 logs/
 *.log
@@ -19,6 +18,8 @@ logs/
 *.tmp
 *.bak
 error_log
+git-fb-end-end-flow.md
+redcap-sms-module.git
 
 # Generated state used by outbound/inbound
 outbound_state.json
@@ -29,4 +30,7 @@ make-history-sources.ps1
 
 # Any backup zips we create during this plan
 _snapshots/
+/secure/
+_history_sources
+
 '@ | Out-File -Encoding UTF8 .gitignore
