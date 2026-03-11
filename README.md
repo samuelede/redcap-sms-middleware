@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-# redcap-sms-module
-SMS API module to allow REDCap post text messages to an SMS provider and receive responses via a one-way or two-way messaging system
-=======
 ﻿# REDCap SMS Module API
 ### One‑way and Two‑way SMS sending (SMS Works / FireText)
 
