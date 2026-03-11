@@ -1,4 +1,12 @@
-﻿## v1.4-feature (2026-03-11)
+﻿## v1.5-feature (2026-03-11)
+- Add hourly cron wrapper (pi/cron_hourly.php) to guarantee pipeline heartbeat.
+- Add Task Scheduler XML (	asks/run_hourly_sms.xml) to run outbound hourly.
+- Improve diagnostics for q1a + reminder window checks.
+## v1.5-feature (2026-03-11)
+- Add hourly cron wrapper (pi/cron_hourly.php) to guarantee pipeline heartbeat.
+- Provide Task Scheduler XML (	asks/run_hourly_sms.xml) to run the cron hourly.
+- Refine diagnostics and reminder window checks.
+## v1.4-feature (2026-03-11)
 - Diagnostics refined; reminder window checks consolidated.
 ## v1.3-feature (2026-03-11)
 - FireText inbound: improved rate-limiting and diagnostics.
@@ -38,3 +46,5 @@ feat(config): initial baseline configuration for REDCap and SMS Works
 
 ## v0.1 - 2025-10-01
 chore: initial project skeleton (.gitignore, README, structure)
+
+
