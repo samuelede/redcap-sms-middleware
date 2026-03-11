@@ -1,4 +1,7 @@
-﻿## v1.2 - 2025-10-01
+﻿## v1.3-feature (2026-03-11)
+- FireText inbound: improved rate-limiting and diagnostics.
+- JWT auth: restored use-existing-token-first behavior for SMS Works.
+## v1.2 - 2025-10-01
 feat(outbound): 3h one-time reminders (window-aware); HELP rate-limit 60m; invalid auto-reply max 1 per day per instance
 
 ## v1.1 - 2025-10-01
@@ -37,4 +40,5 @@ chore: initial project skeleton (.gitignore, README, structure)
 ## v1.3-feature (2026-03-11)
 - FireText inbound: rate-limit clarified and improved diagnostics.
 - (Add any other bullets you want the team to see.)
+
 
