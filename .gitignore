@@ -18,12 +18,14 @@ logs/
 *.log.*
 *.tmp
 *.bak
+error_log
 
 # Generated state used by outbound/inbound
 outbound_state.json
 help_state.json
 Linux(cron).txt
 rebuild-history.ps1
+make-history-sources.ps1
 
 # Any backup zips we create during this plan
 _snapshots/
