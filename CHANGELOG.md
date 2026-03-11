@@ -1,4 +1,6 @@
-﻿## v1.3-feature (2026-03-11)
+﻿## v1.4-feature (2026-03-11)
+- Diagnostics refined; reminder window checks consolidated.
+## v1.3-feature (2026-03-11)
 - FireText inbound: improved rate-limiting and diagnostics.
 - JWT auth: restored use-existing-token-first behavior for SMS Works.
 ## v1.2 - 2025-10-01

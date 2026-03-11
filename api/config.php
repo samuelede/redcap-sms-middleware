@@ -148,6 +148,9 @@ $FIELD_OPT_OUT       = 'sms_opt_out';
 
 $NEXT_SMS_TRIGGER_FIELD = 'next_sms_trigger_ts';
 
+/* ---------------------------------------------------------
+ * Question Sequence (q-code → answer-field)
+ * --------------------------------------------------------- */
 $SEQUENCE = [
     ['q'=>'q1a','a'=>'q1a_answer'],
     ['q'=>'q1b','a'=>'q1b_answer'],
@@ -161,6 +164,9 @@ $SEQUENCE = [
     ['q'=>'q5b','a'=>'q5b_answer'],
 ];
 
+/* ---------------------------------------------------------
+ * Provider Message-ID / Status Fields
+ * --------------------------------------------------------- */
 $SMSW_FIELD_MAP = [
     'q1a'=>['prov'=>'sms_prov_msgid_q1a','status'=>'sms_sent_status_q1a'],
     'q1b'=>['prov'=>'sms_prov_msgid_q1b','status'=>'sms_sent_status_q1b'],
@@ -174,22 +180,55 @@ $SMSW_FIELD_MAP = [
     'q5b'=>['prov'=>'sms_prov_msgid_q5b','status'=>'sms_sent_status_q5b'],
 ];
 
-/* Limits */
+/* ---------------------------------------------------------
+ * Limits
+ * --------------------------------------------------------- */
 $MAX_DAYS           = 30;
 $DEFAULT_PRUNE_KEEP = 5;
 
-/* Scheduling / HELP */
-define('Q1A_GUARD_START_HOUR', 7);
+/* ---------------------------------------------------------
+ * Scheduling / Delivery Windows
+ * --------------------------------------------------------- */
+
+/**
+ * q1a guard window — earliest and latest times q1a may send.
+ * Adjust START=7 to START=9 if you want q1a earliest time at 09:00.
+ */
+define('Q1A_GUARD_START_HOUR', 7);   // earliest q1a send
+define('Q1A_GUARD_END_HOUR',   21);  // latest q1a send (9pm)
+
+/** 
+ * AUTO‑HEAL window — used to recover missed q1a on same day.
+ * (Leave as-is unless you want a later heal pass.)
+ */
 define('AUTO_HEAL_WINDOW_START_HOUR', 7);
-define('AUTO_HEAL_WINDOW_END_HOUR', 12);
+define('AUTO_HEAL_WINDOW_END_HOUR',   21);
 
+/* ---------------------------------------------------------
+ * Reminders (3h follow-ups) — ENABLED
+ * --------------------------------------------------------- */
 define('REMINDER_ENABLED', true);
-define('REMINDER_SECONDS', 3*3600);
-define('REMINDER_SENT_MAX', 1);
-define('REMINDER_WINDOW_START_HOUR', 8);
-define('REMINDER_WINDOW_END_HOUR', 21);
+define('REMINDER_SECONDS', 3 * 3600);   // 3 hours
+define('REMINDER_SENT_MAX', 1);         // 1 reminder max
+define('REMINDER_WINDOW_START_HOUR', 8);  // earliest reminder allowed
+define('REMINDER_WINDOW_END_HOUR',   21); // latest reminder allowed
 
+/* ---------------------------------------------------------
+ * HELP Auto‑Reply Settings — ENABLED
+ * --------------------------------------------------------- */
 define('HELP_AUTOREPLY_ENABLED', true);
-define('HELP_AUTOREPLY_TEXT', "Reply 1–10 for your score today.\nReply 0 to stop messages.\nIf unsure, reply HELP.");
+define('HELP_AUTOREPLY_TEXT',
+    "Reply 1–10 for your score today.\nReply 0 to stop messages.\nIf unsure, reply HELP."
+);
 define('HELP_RATE_LIMIT_MINUTES', 60);
 define('HELP_FOR_INVALID_ENABLED', true);
+define('HELP_INVALID_MAX_DAY', 1);
+
+/*
+ * ADDITIONAL HELP SETTINGS (commented for clarity)
+ *
+ * // Max invalid replies per day
+ * // define('HELP_INVALID_MAX_DAY', 1);
+ *
+ * // Future HELP or support patterns can go here
+ */

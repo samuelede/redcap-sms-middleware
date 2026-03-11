@@ -1,9 +1,10 @@
 @'
-# OS / IDE / Folders
+# OS / IDE 
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+.gitignore
 
 # PHP
 archive/
@@ -32,5 +33,7 @@ make-history-sources.ps1
 _snapshots/
 /secure/
 _history_sources
+tasks/
+api/cron_hourly.php
 
 '@ | Out-File -Encoding UTF8 .gitignore

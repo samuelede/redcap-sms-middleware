@@ -624,7 +624,18 @@ $AH_skipped_optout = 0;
 $AH_missing_today = 0;
 $AH_not_needed = 0;
 
-logv("Running AUTO‑HEAL check for q1a…");
+// **AUTO‑HEAL WINDOW CHECK (q1a)**
+logv("=====================================================");
+logv("**AUTO‑HEAL CHECK FOR q1a** — evaluating records: " . implode(', ', array_keys($phoneMap)));
+logv("-----------------------------------------------------------------------------------------");
+
+foreach ($phoneMap as $rid => $phone) {
+    logv("AUTO‑HEAL: Checking record $rid for q1a…");
+
+    // existing q1a auto-heal logic continues here
+    // ---------------------------------------------------------
+    // (your current logic remains below this point)
+}
 
 foreach ($byRecord as $rid => $insts) {
     if (empty($baselineDate[$rid]) || empty($phoneMap[$rid])) continue;
