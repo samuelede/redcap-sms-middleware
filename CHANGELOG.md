@@ -48,3 +48,7 @@ feat(config): initial baseline configuration for REDCap and SMS Works
 chore: initial project skeleton (.gitignore, README, structure)
 
 
+## v1.5.1 (2026-03-11)
+- Update change log.
+
+
