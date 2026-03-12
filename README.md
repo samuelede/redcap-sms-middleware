@@ -92,3 +92,9 @@ define('REMINDER_WINDOW_START_HOUR', 8);
 define('REMINDER_WINDOW_END_HOUR', 21);
 define('HELP_AUTOREPLY_ENABLED', true);
 define('HELP_RATE_LIMIT_MINUTES', 60);
+```
+
+## License
+This project is licensed under the MIT License — see the LICENSE file for details.
+
+Last updated: March 2026
