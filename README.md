@@ -1,4 +1,27 @@
+<<<<<<< HEAD
 # REDCap SMS Middleware
+=======
+# REDCap SMS Module API
+
+## The Clinical Problem
+
+Patient engagement is one of the most persistent challenges in clinical trial
+delivery. Missed follow-ups, unanswered questionnaires, and poor appointment
+adherence directly affect data completeness and trial outcomes. Most clinical
+trial platforms — including REDCap — are built for data capture, not patient
+communication. This means research teams typically manage participant contact
+manually, through phone calls or paper reminders, creating inconsistent
+processes and significant staff burden.
+
+This middleware bridges that gap. It connects REDCap directly to SMS providers,
+enabling automated outbound question delivery to trial participants and routing
+their replies back into REDCap records without manual intervention. It was
+developed and used in production at a UK academic clinical trials unit to
+support longitudinal follow-up studies where daily patient-reported outcomes
+were required.
+
+### One‑way and Two‑way SMS sending (SMS Works / FireText)
+>>>>>>> improve/readme-gdpr-config-example
 
 ## The Clinical Problem
 
@@ -109,9 +132,12 @@ define('REMINDER_WINDOW_START_HOUR', 8);
 define('REMINDER_WINDOW_END_HOUR', 21);
 define('HELP_AUTOREPLY_ENABLED', true);
 define('HELP_RATE_LIMIT_MINUTES', 60);
+<<<<<<< HEAD
 ```
 > **Tip:** Copy `api/config.example.php` to `api/config.php` and update the
 > values for your REDCap project structure before deploying.
+=======
+>>>>>>> improve/readme-gdpr-config-example
 
 ## GDPR and Clinical Compliance Considerations
 
@@ -139,6 +165,7 @@ or research context, ensure the following are addressed:
   Clauses) as mobile numbers constitute personal data under UK GDPR.
 
 This list is not exhaustive. Always consult your institution's Data Protection
+<<<<<<< HEAD
 Officer and Research Ethics Committee before deploying in a live study.
 
 
@@ -146,3 +173,6 @@ Officer and Research Ethics Committee before deploying in a live study.
 This project is licensed under the MIT License — see the LICENSE file for details.
 
 Last updated: March 2026
+=======
+Officer and Research Ethics Committee before deploying in a live study.
+>>>>>>> improve/readme-gdpr-config-example
