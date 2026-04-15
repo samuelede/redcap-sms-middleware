@@ -1,4 +1,10 @@
-﻿## v1.5-feature (2026-03-11)
+﻿## v1.5.2 (2026-04-14)
+- Fix SMS Works JWT handling (store raw token, apply single JWT prefix at send time).
+- Normalize UK MSISDNs to E.164 format for SMS Works.
+- Stabilise outbound SEND loop execution under IIS + PHP FastCGI.
+- Confirm authorised VMN usage and inbound/outbound parity.
+- Improve diagnostics for AUTO-HEAL and SEND LOOP eligibility.
+## v1.5.1-feature (2026-03-11)
 - Add hourly cron wrapper (pi/cron_hourly.php) to guarantee pipeline heartbeat.
 - Add Task Scheduler XML (	asks/run_hourly_sms.xml) to run outbound hourly.
 - Improve diagnostics for q1a + reminder window checks.
