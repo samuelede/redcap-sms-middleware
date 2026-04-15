@@ -10,6 +10,9 @@ Thumbs.db
 archive/
 certs/
 vendor/
+api/secrets.php
+secure/secrets.php
+web.config
 composer.lock
 
 # Logs & state snapshots
