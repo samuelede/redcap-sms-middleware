@@ -15,7 +15,9 @@
  *      • LOG_DIR/help_state.json      (HELP rate-limiting + invalid-per-day markers)
  */
 
+
 require_once __DIR__ . '/config.php';
+error_log("STEP 1: send_outbound.php loaded");
 date_default_timezone_set($TIMEZONE);
 
 /* ------------------------------------------------------------
@@ -78,7 +80,7 @@ $HEAL_END       = cfg_int('AUTO_HEAL_WINDOW_END_HOUR',   12);
 
 $REM_ENABLED    = cfg_bool('REMINDER_ENABLED', true);
 $REM_SECS       = cfg_int('REMINDER_SECONDS', 3*3600);
-$REM_MAX        = cfg_int('REMINDER_SENT_MAX', 1);
+$REM_MAX        = cfg_int('REMINDER_SENT_MAX', 3);
 $REM_W_START    = defined('REMINDER_WINDOW_START_HOUR') ? constant('REMINDER_WINDOW_START_HOUR') : null;
 $REM_W_END      = defined('REMINDER_WINDOW_END_HOUR')   ? constant('REMINDER_WINDOW_END_HOUR')   : null;
 
@@ -175,7 +177,8 @@ function redcap_post($url,$data){
     $out=curl_exec($ch);
     $code=curl_getinfo($ch,CURLINFO_HTTP_CODE);
     $err=curl_error($ch);
-    curl_close($ch);
+    //curl_close($ch); deprecated in PHP 8.5 — safe to omit
+
     if ($code!==200) throw new RuntimeException("REDCap API error ($code): $out :: $err");
     $json=json_decode($out,true);
     return $json ?? $out;
@@ -227,25 +230,57 @@ function send_sms_firetext($apiKey,$to,$from,$msg,&$xHeader){
     if($code!==200) throw new RuntimeException("FireText error ($code): $out");
     return $xHeader;
 }
-function send_sms_smsworks($jwt,$to,$from,$msg,$deliveryReportUrl=null){
-    $endpoint="https://api.thesmsworks.co.uk/v1/message/send";
-    $authHeader="Authorization: $jwt"; // 'JWT ...'
-    $body=['destination'=>$to,'sender'=>$from,'content'=>$msg];
-    if ($deliveryReportUrl) $body['deliveryreporturl']=$deliveryReportUrl;
+function send_sms_smsworks($jwt, $to, $from, $msg, $deliveryReportUrl=null){
 
-    $ch=curl_init();
-    curl_setopt_array($ch,[
-        CURLOPT_URL=>$endpoint, CURLOPT_POST=>true, CURLOPT_RETURNTRANSFER=>true,
-        CURLOPT_HTTPHEADER=>[$authHeader,'Content-Type: application/json'],
-        CURLOPT_POSTFIELDS=>json_encode($body)
+    // ---- FIX: ensure exactly one JWT prefix ----
+    $jwt = trim((string)$jwt);
+    if (stripos($jwt, 'JWT ') === 0) {
+        $authHeader = "Authorization: {$jwt}";
+    } else {
+        $authHeader = "Authorization: JWT {$jwt}";
+    }
+
+    // --------------------------------------------
+
+    $endpoint = "https://api.thesmsworks.co.uk/v1/message/send";
+
+    $toNorm = normalise_msisdn_for_smsworks($to);
+    $body = [
+        'destination' => $toNorm,
+        'sender'      => $from,
+        'content'     => $msg
+    ];
+    if ($deliveryReportUrl) {
+        $body['deliveryreporturl'] = $deliveryReportUrl;
+    }
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $endpoint,
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER     => [
+            $authHeader,
+            'Content-Type: application/json'
+        ],
+        CURLOPT_POSTFIELDS     => json_encode($body),
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
     ]);
-    $out=curl_exec($ch);
-    $code=curl_getinfo($ch,CURLINFO_HTTP_CODE);
-    $err=curl_error($ch);
+
+    $out  = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
     curl_close($ch);
-    if($code<200||$code>299) throw new RuntimeException("SMS Works error ($code): $out :: $err");
-    $resp=json_decode($out,true);
-    if(!$resp) throw new RuntimeException("Invalid SMS Works JSON: $out");
+
+    if ($code < 200 || $code > 299) {
+        throw new RuntimeException("SMS Works error ($code): $out :: $err");
+    }
+
+    $resp = json_decode($out, true);
+    if (!$resp) {
+        throw new RuntimeException("Invalid SMS Works JSON: $out");
+    }
     return $resp;
 }
 
@@ -299,6 +334,25 @@ $PREV_ANSWER = [
 $FIELD_ASSESSMENT_DATE = 'date_assessment';
 
 /* ------------------------------------------------------------
+ * MSISDN normalisation — SMS Works (E.164)
+ * ------------------------------------------------------------ */
+function normalise_msisdn_for_smsworks($raw){
+    $d = preg_replace('/\D+/', '', $raw ?? '');
+
+    // UK mobile: 07xxxxxxxxx → 447xxxxxxxxx
+    if (strpos($d, '07') === 0) {
+        return '44' . substr($d, 1);
+    }
+
+    // Already E.164
+    if (strpos($d, '44') === 0) {
+        return $d;
+    }
+
+    return $d;
+}
+
+/* ------------------------------------------------------------
  * send_and_record (supports AUX sends: reminders/help won't overwrite prov-id/status)
  * ------------------------------------------------------------ */
 function send_and_record($qCode,$rid,$inst,$to,$text,$isAux=false){
@@ -319,7 +373,8 @@ function send_and_record($qCode,$rid,$inst,$to,$text,$isAux=false){
         send_sms_firetext($FIRETEXT_API_KEY,$clean,$sender,$text,$x);
         $provId=$x??'';
     } else {
-        $digits=preg_replace('/\D+/','',$to);
+        // $digits=preg_replace('/\D+/','',$to);
+        $digits = normalise_msisdn_for_smsworks($to);
         /* TINY PATCH (SMS Works only): use current_sender_id() */
         $sender = function_exists('current_sender_id') ? current_sender_id() : ($GLOBALS['SENDER_ID'] ?? 'SMSWorks');
         $resp=send_sms_smsworks($SMSW_JWT_RAW,$digits,$sender,$text /*, $deliveryReportUrl */);
@@ -408,18 +463,36 @@ if ($HELP_ENABLED && isset($_GET['help']) && $_GET['help']=='1') {
  * Export baseline (phone + baseline)
  * ------------------------------------------------------------ */
 logv("Exporting baseline rows (phone + baseline date)…");
-$baseline=redcap_export_records(
-    $REDCAP_API_TOKEN,$REDCAP_API_URL,
-    ['record_id',$FIELD_PHONE,$FIELD_BASELINE_DATE],
+$baseline = redcap_export_records(
+    $REDCAP_API_TOKEN,
+    $REDCAP_API_URL,
+    ['record_id', $FIELD_PHONE, $FIELD_BASELINE_DATE, 'q1aa', 'compl_pref'],
     "",
     [$BASELINE_EVENT]
 );
-$phoneMap=[]; $baselineDate=[];
-foreach($baseline as $r){
-    $rid=$r['record_id']??null;
-    if(!$rid) continue;
-    if(!empty($r[$FIELD_PHONE]))         $phoneMap[$rid]=$r[$FIELD_PHONE];
-    if(!empty($r[$FIELD_BASELINE_DATE])) $baselineDate[$rid]=$r[$FIELD_BASELINE_DATE];
+$phoneMap = [];
+$baselineDate = [];
+$baselineQ1aa = [];
+$baselineComplPref = [];
+foreach ($baseline as $r) {
+    $rid = $r['record_id'] ?? null;
+    if (!$rid) continue;
+
+    if (!empty($r[$FIELD_PHONE])) {
+        $phoneMap[$rid] = $r[$FIELD_PHONE];
+    }
+
+    if (!empty($r[$FIELD_BASELINE_DATE])) {
+        $baselineDate[$rid] = $r[$FIELD_BASELINE_DATE];
+    }
+
+    if (isset($r['q1aa'])) {
+        $baselineQ1aa[$rid] = trim((string)$r['q1aa']);
+    }
+
+    if (isset($r['compl_pref'])) {
+        $baselineComplPref[$rid] = (string)$r['compl_pref'];
+    }
 }
 logv("Baseline phone entries: ".count($phoneMap).", baseline dates: ".count($baselineDate));
 
@@ -629,19 +702,15 @@ logv("=====================================================");
 logv("**AUTO‑HEAL CHECK FOR q1a** — evaluating records: " . implode(', ', array_keys($phoneMap)));
 logv("-----------------------------------------------------------------------------------------");
 
-foreach ($phoneMap as $rid => $phone) {
-    logv("AUTO‑HEAL: Checking record $rid for q1a…");
-
-    // existing q1a auto-heal logic continues here
-    // ---------------------------------------------------------
-    // (your current logic remains below this point)
-}
-
 foreach ($byRecord as $rid => $insts) {
     if (empty($baselineDate[$rid]) || empty($phoneMap[$rid])) continue;
 
     $todayDay = get_today_day_number($baselineDate[$rid]);
     if (!$todayDay) continue;
+
+    if ($todayDay > $MAX_DAYS) {
+        continue; // silently ignore records beyond study window
+    }
 
     $AH_checked++;
 
@@ -658,7 +727,7 @@ foreach ($byRecord as $rid => $insts) {
         continue;
     }
 
-    $q1aText = trim((string)($row['q1a'] ?? ''));
+    $q1aText = trim((string)($baselineQ1aa[$rid] ?? ''));
     $q1aAns  = trim((string)($row['q1a_answer'] ?? ''));
     $provFieldQ1a = $SMSW_FIELD_MAP['q1a']['prov'] ?? null;
     $alreadyProv  = $provFieldQ1a ? trim((string)($row[$provFieldQ1a] ?? '')) : '';
@@ -679,7 +748,7 @@ foreach ($byRecord as $rid => $insts) {
         logv("AUTO‑HEAL: ERROR sending q1a for record {$rid} — ".$e->getMessage());
     }
 }
-
+error_log("STEP 2: AUTO-HEAL completed");
 /* ------------------------------------------------------------
  * Reminder & HELP states
  * ------------------------------------------------------------ */
@@ -687,6 +756,30 @@ $qState = state_load($STATE_FILE);
 $helpState = state_load($HELP_STATE_FILE);
 $reminderSentCount = 0;
 
+// Refresh baseline once more to ensure survey data (q1aa / compl_pref) is available
+$baseline = redcap_export_records(
+    $REDCAP_API_TOKEN,
+    $REDCAP_API_URL,
+    ['record_id', $FIELD_PHONE, $FIELD_BASELINE_DATE, 'q1aa', 'compl_pref'],
+    "",
+    [$BASELINE_EVENT]
+);
+
+$baselineQ1aa = [];
+$baselineComplPref = [];
+foreach ($baseline as $r) {
+    $rid = $r['record_id'] ?? null;
+    if (!$rid) continue;
+
+    if (isset($r['q1aa'])) {
+        $baselineQ1aa[$rid] = trim((string)$r['q1aa']);
+    }
+    if (isset($r['compl_pref'])) {
+        $baselineComplPref[$rid] = (string)$r['compl_pref'];
+    }
+}
+
+logv("Baseline refreshed before SEND LOOP");
 /* ------------------------------------------------------------
  * SEND LOOP (q1a + q1b..q5b) + window-aware reminders + “0”→opt-out
  * ------------------------------------------------------------ */
@@ -698,6 +791,10 @@ foreach($byRecord as $rid=>$insts){
     ksort($insts);
     $todayDay=get_today_day_number($baselineDate[$rid]);
     $to=$phoneMap[$rid];
+
+    if ($todayDay > $MAX_DAYS) {
+        continue; // silently ignore records beyond study window
+    }
 
     foreach($insts as $inst=>$row){
         if($inst>$MAX_DAYS) continue;
@@ -749,29 +846,48 @@ foreach($byRecord as $rid=>$insts){
             }
         }
 
-        /* ---------- q1a: today-only + guard ---------- */
-        if($nextQ==='q1a'){
-            if($inst !== $todayDay){
-                logv("Record {$rid} Day {$inst}: q1a pending but today is Day {$todayDay}; skipping");
-                continue;
-            }
-            $q1aText=trim((string)($row['q1a']??''));
-            $q1aAnswer=trim((string)($row['q1a_answer']??''));
-            $provFieldQ1a=$SMSW_FIELD_MAP['q1a']['prov']??null;
-            $alreadyProv= $provFieldQ1a ? trim((string)($row[$provFieldQ1a]??'')) : '';
+        /* ---------- q1a: baseline kick-off + preference gate ---------- */
+        if ($nextQ === 'q1a') {
 
-            if($q1aText==='' || $q1aAnswer!=='' || $alreadyProv!==''){
-                logv("Record {$rid} Day {$inst}: cannot send q1a (blank/answered/sent)");
+            // Phone must exist
+            if (empty($to)) {
                 continue;
             }
 
-            if(!allow_q1a_now_global($Q1A_HOUR)){
-                logv("Record {$rid} Day {$inst}: q1a due but before {$Q1A_HOUR}:00 — deferring");
+            // Completion preference must be explicitly opted-in (baseline event)
+            $cp = $baselineComplPref[$rid] ?? null;
+
+            // Accept numeric 1 or string '1'
+            if (!in_array((string)$cp, ['1'], true)) {
                 continue;
             }
 
-            list($prov,$st)=send_and_record('q1a',$rid,$inst,$to,$q1aText,false);
-            q_state_mark_sent($qState,$rid,$inst,'q1a');
+            // Only allow q1a for first instance
+            if ($inst !== 1) {
+                continue;
+            }
+
+            // Get q1a text from BASELINE event (q1aa)
+            $q1aText = trim((string)($baselineQ1aa[$rid] ?? ''));
+
+            $q1aAnswer = trim((string)($row['q1a_answer'] ?? ''));
+            $provFieldQ1a = $SMSW_FIELD_MAP['q1a']['prov'] ?? null;
+            $alreadyProv  = $provFieldQ1a ? trim((string)($row[$provFieldQ1a] ?? '')) : '';
+
+            // Eligibility checks
+            if ($q1aText === '' || $q1aAnswer !== '' || $alreadyProv !== '') {
+                continue;
+            }
+
+            // Time guard
+            if (!allow_q1a_now_global($Q1A_HOUR)) {
+                continue;
+            }
+
+            // Send q1a
+            list($prov,$st) = send_and_record('q1a', $rid, $inst, $to, $q1aText, false);
+            q_state_mark_sent($qState, $rid, $inst, 'q1a');
+
             echo "✔ Sent q1a for record {$rid} (Day {$inst}) — msgid={$prov}<br>";
             $sentCount++;
             continue;
@@ -817,3 +933,5 @@ state_save($HELP_STATE_FILE,$helpState);
 
 echo "<p><b>Total messages sent this run: {$sentCount}</b></p>";
 echo "<p><b>Reminders sent this run: {$reminderSentCount}</b></p>";
+
+error_log("STEP 4: END OF SCRIPT");

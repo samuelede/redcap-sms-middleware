@@ -23,7 +23,7 @@ if (!defined('LOG_DIR')) {
 }
 if (!is_dir(LOG_DIR)) { @mkdir(LOG_DIR, 0775, true); }
 
-$INBOUND_LOG_FILE = rtrim(LOG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'inbound.log';
+$INBOUND_LOG_FILE = rtrim(LOG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . '/logs/inbound.log';
 function inlog($line){
     global $INBOUND_LOG_FILE;
     @file_put_contents($INBOUND_LOG_FILE, '['.date('Y-m-d H:i:s').'] '.$line.PHP_EOL, FILE_APPEND | LOCK_EX);
