@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <system.webServer>
+
+    <!-- Block direct browser access to internal scripts -->
+    <security>
+      <requestFiltering>
+        <denyUrlSequences>
+          <add sequence="config.php" />
+          <add sequence="send_outbound.php" />
+          <add sequence="cron_hourly.php" />
+          <add sequence="scheduler_tomorrow.php" />
+        </denyUrlSequences>
+      </requestFiltering>
+    </security>
+
+    <!-- POST-only enforcement happens inside PHP -->
+  </system.webServer>
+</configuration>

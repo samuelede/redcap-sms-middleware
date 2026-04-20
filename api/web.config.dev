@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <system.webServer>
+
+    <!-- DEV: allow access for debugging -->
+    <security>
+      <requestFiltering>
+        <denyUrlSequences>
+          <!-- Still block secrets -->
+          <add sequence="config.php" />
+        </denyUrlSequences>
+      </requestFiltering>
+    </security>
+
+  </system.webServer>
+</configuration>
