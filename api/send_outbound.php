@@ -76,11 +76,11 @@ function cfg_bool($name, $fallback){ return defined($name) ? (bool)constant($nam
 
 $Q1A_HOUR       = cfg_int('Q1A_GUARD_START_HOUR', 7);
 $HEAL_START     = cfg_int('AUTO_HEAL_WINDOW_START_HOUR', 7);
-$HEAL_END       = cfg_int('AUTO_HEAL_WINDOW_END_HOUR',   12);
+$HEAL_END       = cfg_int('AUTO_HEAL_WINDOW_END_HOUR',   20);
 
 $REM_ENABLED    = cfg_bool('REMINDER_ENABLED', true);
-$REM_SECS       = cfg_int('REMINDER_SECONDS', 3*3600);
-$REM_MAX        = cfg_int('REMINDER_SENT_MAX', 3);
+$REM_SECS       = cfg_int('REMINDER_SECONDS', 3*3600); //define('REMINDER_SECONDS', 3 * 24 * 3600); in live env
+$REM_MAX        = cfg_int('REMINDER_SENT_MAX', 1);
 $REM_W_START    = defined('REMINDER_WINDOW_START_HOUR') ? constant('REMINDER_WINDOW_START_HOUR') : null;
 $REM_W_END      = defined('REMINDER_WINDOW_END_HOUR')   ? constant('REMINDER_WINDOW_END_HOUR')   : null;
 
@@ -303,8 +303,7 @@ function get_today_day_number($baselineRaw){
     $base=parse_baseline_date_dmy($baselineRaw);
     if(!$base) return null;
     $today=new DateTime('today');
-    $diff=(int)$base->diff($today)->format('%a');
-    return $diff+1; // baseline date = Day 1
+    return (int)$base->diff($today)->format('%a'); // baseline date = Day 0
 }
 function find_next_unanswered_question($row,$sequence){
     foreach($sequence as $s){
@@ -706,7 +705,14 @@ foreach ($byRecord as $rid => $insts) {
     if (empty($baselineDate[$rid]) || empty($phoneMap[$rid])) continue;
 
     $todayDay = get_today_day_number($baselineDate[$rid]);
-    if (!$todayDay) continue;
+
+    // ------------------------------------------------------------
+    // BASELINE DAY GUARD — never send SMS on Day 0
+    // ------------------------------------------------------------
+    if ($todayDay === 0) {
+        logv("Record {$rid}: baseline Day 0 — no SMS sent");
+        continue;
+    }
 
     if ($todayDay > $MAX_DAYS) {
         continue; // silently ignore records beyond study window
@@ -791,6 +797,14 @@ foreach($byRecord as $rid=>$insts){
     ksort($insts);
     $todayDay=get_today_day_number($baselineDate[$rid]);
     $to=$phoneMap[$rid];
+
+    // ------------------------------------------------------------
+    // BASELINE DAY GUARD — never send SMS on Day 0
+    // ------------------------------------------------------------
+    if ($todayDay === 0) {
+        logv("Record {$rid}: baseline Day 0 — no SMS sent");
+        continue;
+    }
 
     if ($todayDay > $MAX_DAYS) {
         continue; // silently ignore records beyond study window
