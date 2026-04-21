@@ -15,6 +15,10 @@
  *      • LOG_DIR/help_state.json      (HELP rate-limiting + invalid-per-day markers)
  */
 
+$MET_checked = 0;
+$MET_sent = 0;
+$MET_skipped = 0;
+
 $lockFile = sys_get_temp_dir() . '/send_outbound.lock';
 $lock = fopen($lockFile, 'c');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
@@ -754,7 +758,7 @@ foreach ($byRecord as $rid => $insts) {
     $to = $phoneMap[$rid];
     try {
         list($prov,$status) = send_and_record('q1a', $rid, $todayDay, $to, $q1aText, false);
-        $AH_sent++;
+        $MET_sent++; $AH_sent++;
         logv("AUTO‑HEAL: q1a sent for record {$rid} (Day {$todayDay}) — msgid={$prov}, status={$status}");
     } catch (Exception $e) {
         $AH_deferred++;
@@ -810,15 +814,15 @@ foreach($byRecord as $rid=>$insts){
     // ------------------------------------------------------------
     if ($todayDay === 0) {
         logv("Record {$rid}: baseline Day 0 — no SMS sent");
-        continue;
+        $MET_skipped++; continue;
     }
 
     if ($todayDay > $MAX_DAYS) {
-        continue; // silently ignore records beyond study window
+        $MET_skipped++; continue; // silently ignore records beyond study window
     }
 
     foreach($insts as $inst=>$row){
-        if($inst>$MAX_DAYS) continue;
+        if($inst>$MAX_DAYS) $MET_skipped++; continue;
 
         /* ---------- AUTO OPT-OUT if any answer == "0" ---------- */
         if (($row[$FIELD_OPT_OUT] ?? '') !== '0') {
@@ -837,13 +841,13 @@ foreach($byRecord as $rid=>$insts){
                 ]];
                 $r = redcap_import_records($REDCAP_API_TOKEN,$REDCAP_API_URL,$upd);
                 logv("OPT-OUT (by answer=0): record {$rid} Day {$inst} — resp=".json_encode($r));
-                continue; // stop this instance
+                $MET_skipped++; continue; // stop this instance
             }
         }
         if(($row[$FIELD_OPT_OUT]??'')==='0') continue;
 
         $nextQ=find_next_unanswered_question($row,$SEQUENCE);
-        if(!$nextQ) continue;
+        if(!$nextQ) $MET_skipped++; continue;
 
         /* ---------- REMINDER: only within window & age threshold ---------- */
         if ($REM_ENABLED && allow_reminder_window($REM_W_START,$REM_W_END)) {
@@ -859,7 +863,7 @@ foreach($byRecord as $rid=>$insts){
                     $qText=trim((string)($row[$nextQ]??''));
                     if ($qText!=='') {
                         list($prov,$st)=send_and_record($nextQ,$rid,$inst,$to,$qText,true /* aux reminder */);
-                        $reminderSentCount++;
+                        $MET_sent++; $reminderSentCount++;
                         logv("REMINDER sent for record {$rid} Day {$inst} {$nextQ} — msgid={$prov}");
                         q_state_mark_reminded($qState,$rid,$inst,$nextQ);
                     }
@@ -872,7 +876,7 @@ foreach($byRecord as $rid=>$insts){
 
             // Phone must exist
             if (empty($to)) {
-                continue;
+                $MET_skipped++; continue;
             }
 
             // Completion preference must be explicitly opted-in (baseline event)
@@ -880,12 +884,12 @@ foreach($byRecord as $rid=>$insts){
 
             // Accept numeric 1 or string '1'
             if (!in_array((string)$cp, ['1'], true)) {
-                continue;
+                $MET_skipped++; continue;
             }
 
             // Only allow q1a for first instance
             if ($inst !== 1) {
-                continue;
+                $MET_skipped++; continue;
             }
 
             // Get q1a text from BASELINE event (q1aa)
@@ -897,21 +901,22 @@ foreach($byRecord as $rid=>$insts){
 
             // Eligibility checks
             if ($q1aText === '' || $q1aAnswer !== '' || $alreadyProv !== '') {
-                continue;
+                $MET_skipped++; continue;
             }
 
             // Time guard
             if (!allow_q1a_now_global($Q1A_HOUR)) {
-                continue;
+                $MET_skipped++; continue;
             }
 
             // Send q1a
             list($prov,$st) = send_and_record('q1a', $rid, $inst, $to, $q1aText, false);
+            $MET_sent++; 
             q_state_mark_sent($qState, $rid, $inst, 'q1a');
 
             echo "✔ Sent q1a for record {$rid} (Day {$inst}) — msgid={$prov}<br>";
             $sentCount++;
-            continue;
+            $MET_skipped++; continue;
         }
 
         /* ---------- q1b..q5b strict gate ---------- */
@@ -920,29 +925,31 @@ foreach($byRecord as $rid=>$insts){
             $prevVal = $row[$prevAnsField] ?? '';
             if(!is_answered_1to10($prevVal)){
                 logv("Record {$rid} Day {$inst} — {$nextQ} blocked: previous answer {$prevAnsField} missing/invalid");
-                continue;
+                $MET_skipped++; continue;
             }
         }
 
         $qText=trim((string)($row[$nextQ]??''));
         if($qText===''){
             logv("Record {$rid} Day {$inst}: {$nextQ} text blank; skipping");
-            continue;
+            $MET_skipped++; continue;
         }
 
         $provFieldNext=$SMSW_FIELD_MAP[$nextQ]['prov']??null;
         if($provFieldNext && trim((string)($row[$provFieldNext]??''))!==''){
             logv("Record {$rid} Day {$inst}: {$nextQ} already sent; skipping");
-            continue;
+            $MET_skipped++; continue;
         }
 
         list($prov,$status)=send_and_record($nextQ,$rid,$inst,$to,$qText,false);
+        $MET_sent++; 
         q_state_mark_sent($qState,$rid,$inst,$nextQ);
         echo "✔ Sent {$nextQ} for record {$rid} (Day {$inst}) — msgid={$prov}";
         if($status) echo " — status={$status}";
         echo "<br>";
         $sentCount++;
-    }
+    }    
+    $MET_checked++; $MET_sent++; 
 }
 
 /* ------------------------------------------------------------
@@ -956,6 +963,8 @@ echo "<p><b>Total messages sent this run: {$sentCount}</b></p>";
 echo "<p><b>Reminders sent this run: {$reminderSentCount}</b></p>";
 
 error_log("STEP 4: END OF SCRIPT");
+
+logv("CRON SUMMARY: checked={$MET_checked}, sent={$MET_sent}, skipped={$MET_skipped}");
 
 flock($lock, LOCK_UN);
 fclose($lock);
