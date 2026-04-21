@@ -1,7 +1,26 @@
-﻿## v0.5.6 (2026-04-21)
+﻿## v0.6.0 (2026-04-22)
+### Added
+- Automatic completion of follow-up repeating instrument when all daily answer fields are populated.
+- Support for treating response code `666` as a valid “answered” state for progression and completion.
+- Deterministic inbound handling that maps replies to the earliest unanswered question for the day.
+
+### Fixed
+- Inbound SMS handling stability after outbound send-loop refactor.
+- Incorrect skipping or silent rejection of valid numeric replies.
+- Outbound sequencing issues caused by unconditional loop continues.
+- Advancement logic so follow-up questions send correctly after valid responses.
+
+### Changed
+- Clarified responsibility boundaries:
+- Inbound: validate and record responses only.
+- Outbound: owns sequencing, timing, and message sending.
+- Removed inbound dependency on outbound provider IDs and sent-state.
+
+## v0.5.6 (2026-04-21)
 ### Changed
 - Clarified reminder timing wording in cron_hourly to reflect 3-day (hours-based) logic
 - Clarified inbound vs delivery report webhook separation for SMS Works
+
 ## v0.5.5 (2026-04-20)
 - Align baseline handling to Day 0 per study protocol
 - Suppress all outbound SMS on baseline day (Day 0)
@@ -9,33 +28,41 @@
 - Make inbound and outbound day arithmetic consistent
 - Preserve time-based reminder logic (3 days after first send)
 - Improve robustness for late replies and unanswered question detection
+
 ## v0.5.4 (2026-04-20)
 - Add environment-specific IIS configuration templates:
 - web.config.dev for development/debug access
 - web.config.prod for production hardening
 - Document deployment workflow using template-based web.config replacement
 - Prevent accidental commit of active web.config
+
 ## v0.5.3 (2026-04-14)
 - Fix SMS Works JWT handling (store raw token, apply single JWT prefix at send time).
 - Normalize UK MSISDNs to E.164 format for SMS Works.
 - Stabilise outbound SEND loop execution under IIS + PHP FastCGI.
 - Confirm authorised VMN usage and inbound/outbound parity.
 - Improve diagnostics for AUTO-HEAL and SEND LOOP eligibility.
+
 ## v0.5.2-feature (2026-03-11)
 - Add hourly cron wrapper (api/cron_hourly.php) to guarantee pipeline heartbeat.
 - Add Task Scheduler XML (	asks/run_hourly_sms.xml) to run outbound hourly.
 - Improve diagnostics for q1a + reminder window checks.
+
 ## v0.5.1-feature (2026-03-11)
 - Improvements + documentations
+
 ## v0.5-feature (2026-03-11)
 - Add hourly cron wrapper (api/cron_hourly.php) to guarantee pipeline heartbeat.
 - Provide Task Scheduler XML (	asks/run_hourly_sms.xml) to run the cron hourly.
 - Refine diagnostics and reminder window checks.
+
 ## v0.4-feature (2026-03-11)
 - Diagnostics refined; reminder window checks consolidated.
+
 ## v0.3-feature (2026-03-11)
 - FireText inbound: improved rate-limiting and diagnostics.
 - JWT auth: restored use-existing-token-first behavior for SMS Works.
+
 ## v0.2 - 2025-10-01
 feat(outbound): 3h one-time reminders (window-aware); HELP rate-limit 60m; invalid auto-reply max 1 per day per instance
 
