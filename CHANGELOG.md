@@ -1,4 +1,8 @@
-﻿## v0.5.5 (2026-04-20)
+﻿## v0.5.6 (2026-04-21)
+### Changed
+- Clarified reminder timing wording in cron_hourly to reflect 3-day (hours-based) logic
+- Clarified inbound vs delivery report webhook separation for SMS Works
+## v0.5.5 (2026-04-20)
 - Align baseline handling to Day 0 per study protocol
 - Suppress all outbound SMS on baseline day (Day 0)
 - Ensure first assessment SMS is sent on Day 1 only
