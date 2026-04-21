@@ -553,7 +553,9 @@ $createRows=[];
 foreach($baselineDate as $rid=>$baseRaw){
     if(empty($phoneMap[$rid])) continue;
     if(empty($hasInstance1[$rid])){
-        $d1 = parse_baseline_date_dmy($baseRaw) ?: new DateTime('today');
+        $d1 = (parse_baseline_date_dmy($baseRaw) ?: new DateTime('today'))
+        ->modify('+1 day');
+
         $d1Ymd = fmt_import_ymd($d1);
         $createRows[]=[
             'record_id'                => $rid,
