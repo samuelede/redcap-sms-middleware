@@ -16,7 +16,7 @@
  */
 
 $base = __DIR__;
-$logFile = $base . '/logs/cron_hourly.log';
+$logFile = $base . './logs/cron_hourly.log';
 
 // Make sure logs folder exists
 if (!is_dir(dirname($logFile))) {
