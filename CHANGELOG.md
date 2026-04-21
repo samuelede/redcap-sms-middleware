@@ -1,17 +1,30 @@
-﻿## v0.5.3 (2026-04-14)
+﻿## v0.5.5 (2026-04-20)
+- Align baseline handling to Day 0 per study protocol
+- Suppress all outbound SMS on baseline day (Day 0)
+- Ensure first assessment SMS is sent on Day 1 only
+- Make inbound and outbound day arithmetic consistent
+- Preserve time-based reminder logic (3 days after first send)
+- Improve robustness for late replies and unanswered question detection
+## v0.5.4 (2026-04-20)
+- Add environment-specific IIS configuration templates:
+- web.config.dev for development/debug access
+- web.config.prod for production hardening
+- Document deployment workflow using template-based web.config replacement
+- Prevent accidental commit of active web.config
+## v0.5.3 (2026-04-14)
 - Fix SMS Works JWT handling (store raw token, apply single JWT prefix at send time).
 - Normalize UK MSISDNs to E.164 format for SMS Works.
 - Stabilise outbound SEND loop execution under IIS + PHP FastCGI.
 - Confirm authorised VMN usage and inbound/outbound parity.
 - Improve diagnostics for AUTO-HEAL and SEND LOOP eligibility.
 ## v0.5.2-feature (2026-03-11)
-- Add hourly cron wrapper (pi/cron_hourly.php) to guarantee pipeline heartbeat.
+- Add hourly cron wrapper (api/cron_hourly.php) to guarantee pipeline heartbeat.
 - Add Task Scheduler XML (	asks/run_hourly_sms.xml) to run outbound hourly.
 - Improve diagnostics for q1a + reminder window checks.
 ## v0.5.1-feature (2026-03-11)
 - Improvements + documentations
 ## v0.5-feature (2026-03-11)
-- Add hourly cron wrapper (pi/cron_hourly.php) to guarantee pipeline heartbeat.
+- Add hourly cron wrapper (api/cron_hourly.php) to guarantee pipeline heartbeat.
 - Provide Task Scheduler XML (	asks/run_hourly_sms.xml) to run the cron hourly.
 - Refine diagnostics and reminder window checks.
 ## v0.4-feature (2026-03-11)
