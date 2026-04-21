@@ -276,10 +276,24 @@ try {
         if ((int)$row['record_id'] !== $rid) continue;
         if ((int)($row['redcap_repeat_instance'] ?? 0) !== $day) continue;
         foreach ($SEQUENCE as $s) {
-            if (trim((string)($row[$s['a']] ?? '')) === '') {
-                $answerField = $s['a'];
-                break 2;
+            $ansField = $s['a'];
+            $qCode    = $s['q'];
+
+            // answer must be empty
+            if (trim((string)($row[$ansField] ?? '')) !== '') {
+                continue;
             }
+
+            // question must have been sent
+            $provField = $SMSW_FIELD_MAP[$qCode]['prov'] ?? null;
+            if ($provField && empty(trim((string)($row[$provField] ?? '')))) {
+                // Question not sent yet → do NOT accept reply
+                continue;
+            }
+
+            // ✅ This is the active question
+            $answerField = $ansField;
+            break 2;
         }
     }
     
@@ -441,7 +455,7 @@ try {
 
     /* ---------- INVALID ---------- */
     inlog(
-        "INVALID record={$rid} day={$day} text='{$text}' — sending HELP auto-reply"
+        "INVALID record={$rid} day={$day} text='{$text}' — no active sent question"
     );
 
     $helpText = defined('HELP_AUTOREPLY_TEXT')
