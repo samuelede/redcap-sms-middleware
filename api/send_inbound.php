@@ -22,24 +22,27 @@ require_once __DIR__ . '/config.php';
 date_default_timezone_set($TIMEZONE);
 
 /* ------------------------------------------------------------
- * Configuration
- * ------------------------------------------------------------ */
-define('SPECIAL_SKIP_CODE', '666');
-define('INVALID_RESEND_DELAY_SECONDS', 7);
-
-/* ------------------------------------------------------------
- * Logging
+ * Logging (MUST be defined before first use)
  * ------------------------------------------------------------ */
 if (!defined('LOG_DIR')) {
-    $try = realpath(__DIR__ . '/../logs');
-    if (!$try) $try = __DIR__ . '/logs';
-    define('LOG_DIR', $try);
-}
-if (!is_dir(LOG_DIR)) {
-    @mkdir(LOG_DIR, 0775, true);
+    $base = dirname(__DIR__); // project root
+    $logDir = $base . DIRECTORY_SEPARATOR . 'logs';
+
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
+    }
+
+    if (!is_dir($logDir) || !is_writable($logDir)) {
+        $logDir = sys_get_temp_dir(); // safe fallback
+    }
+
+    define('LOG_DIR', $logDir);
 }
 
-$INBOUND_LOG = rtrim(LOG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'inbound.log';
+$INBOUND_LOG = rtrim(LOG_DIR, DIRECTORY_SEPARATOR)
+             . DIRECTORY_SEPARATOR
+             . 'inbound.log';
+
 function inlog($msg) {
     global $INBOUND_LOG;
     @file_put_contents(
@@ -48,8 +51,21 @@ function inlog($msg) {
         FILE_APPEND | LOCK_EX
     );
 }
-
 inlog('=== INBOUND START ===');
+
+/* ------------------------------------------------------------
+ * FIRST safe log call
+ * ------------------------------------------------------------ */
+inlog(
+    "DEBUG CONFIG: SMSW_JWT_RAW=".(isset($SMSW_JWT_RAW)?'SET':'MISSING')
+    .", SENDER_ID=".(isset($SENDER_ID)?'SET':'MISSING')
+);
+
+/* ------------------------------------------------------------
+ * Configuration
+ * ------------------------------------------------------------ */
+define('SPECIAL_SKIP_CODE', '666');
+define('INVALID_RESEND_DELAY_SECONDS', 7);
 
 /* ------------------------------------------------------------
  * Helpers
@@ -134,6 +150,59 @@ function redcap_import_records($token, $url, array $rows) {
         'returnFormat' => 'json'
     ];
     redcap_api_post($url, $p);
+}
+
+function send_help_sms_smsworks($to, $text) {
+    global $SMSW_JWT_RAW;
+
+    $sender = function_exists('current_sender_id')
+        ? current_sender_id()
+        : (defined('SENDER_ID') ? SENDER_ID : ($GLOBALS['SENDER_ID'] ?? null));
+
+    if (empty($SMSW_JWT_RAW) || empty($sender)) {
+        inlog("HELP SEND ABORTED: missing SMSW_JWT_RAW or sender");
+        return false;
+    }
+
+    $endpoint = "https://api.thesmsworks.co.uk/v1/message/send";
+    $toNorm = normalise_msisdn($to);
+
+    $authHeader = (stripos($SMSW_JWT_RAW, 'JWT ') === 0)
+        ? "Authorization: {$SMSW_JWT_RAW}"
+        : "Authorization: JWT {$SMSW_JWT_RAW}";
+
+    $body = [
+        'destination' => $toNorm,
+        'sender'      => $sender,
+        'content'     => $text
+    ];
+
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $endpoint,
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER     => [
+            $authHeader,
+            'Content-Type: application/json'
+        ],
+        CURLOPT_POSTFIELDS     => json_encode($body),
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_TIMEOUT        => 15,
+    ]);
+
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
+    curl_close($ch);
+
+    if ($code < 200 || $code >= 300) {
+        inlog("HELP SEND FAILED: HTTP {$code} resp={$resp} err={$err}");
+        return false;
+    }
+
+    inlog("HELP SENT OK to {$toNorm} from {$sender}");
+    return true;
 }
 
 /* ------------------------------------------------------------
@@ -287,11 +356,14 @@ try {
 
     /* ---------- INVALID ---------- */
     inlog(
-        "INVALID record={$rid} day={$day} text='{$text}' — no valid unanswered question or out-of-range response"
+        "INVALID record={$rid} day={$day} text='{$text}' — sending HELP auto-reply"
     );
 
-    // Optional: send HELP auto-reply here if you want
-    // (do NOT advance state, do NOT trigger outbound)
+    $helpText = defined('HELP_AUTOREPLY_TEXT')
+        ? HELP_AUTOREPLY_TEXT
+        : "Reply 1–10 for your score today. Reply 0 to stop messages. Reply HELP for help.";
+
+    send_help_sms_smsworks($from, $helpText);
 
     http_response_code(200);
     echo "OK";
