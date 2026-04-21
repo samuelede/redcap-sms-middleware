@@ -5,7 +5,7 @@
  * Purpose:
  *   Runs hourly via Windows Task Scheduler to guarantee:
  *     - q1a auto-heal (morning safety net)
- *     - reminders (every 3 hours)
+ *     - reminders (every 3 days/hours)
  *     - retry due items
  *     - ensures SMS pipeline runs even if DET or inbound auto-trigger fails
  * 
@@ -16,7 +16,7 @@
  */
 
 $base = __DIR__;
-$logFile = $base . '/../logs/cron_hourly.log';
+$logFile = $base . '/logs/cron_hourly.log';
 
 // Make sure logs folder exists
 if (!is_dir(dirname($logFile))) {
