@@ -79,7 +79,7 @@ $HEAL_START     = cfg_int('AUTO_HEAL_WINDOW_START_HOUR', 7);
 $HEAL_END       = cfg_int('AUTO_HEAL_WINDOW_END_HOUR',   20);
 
 $REM_ENABLED    = cfg_bool('REMINDER_ENABLED', true);
-$REM_SECS       = cfg_int('REMINDER_SECONDS', 3*3600); //define('REMINDER_SECONDS', 3 * 24 * 3600); in live env
+$REM_SECS       = cfg_int('REMINDER_SECONDS', 3600); //define('REMINDER_SECONDS', 3 * 24 * 3600); in live env
 $REM_MAX        = cfg_int('REMINDER_SENT_MAX', 1);
 $REM_W_START    = defined('REMINDER_WINDOW_START_HOUR') ? constant('REMINDER_WINDOW_START_HOUR') : null;
 $REM_W_END      = defined('REMINDER_WINDOW_END_HOUR')   ? constant('REMINDER_WINDOW_END_HOUR')   : null;
@@ -609,7 +609,7 @@ foreach($byRecord as $rid=>$insts){
 
     for($i=1;$i<=$limit;$i++){
         if(isset($insts[$i])) continue;
-        $dtClone = (clone $baseDt)->modify('+'.($i-1).' day');
+        $dtClone = (clone $baseDt)->modify("+{$i} day");
         $ymd = fmt_import_ymd($dtClone);
 
         $createNext[]=[
