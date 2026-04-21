@@ -176,8 +176,10 @@ try {
     inlog("RECEIVED from={$from} content='{$text}'");
 
     if ($text === '') {
-        inlog("ABORT: empty content");
-        http_response_code(200); echo "OK"; exit;
+        inlog("ABORT: empty content (likely browser access, delivery report, or malformed inbound payload)");
+        http_response_code(200);
+        echo "OK";
+        return;
     }
 
     /* ---------- Find record by phone ---------- */
@@ -199,15 +201,21 @@ try {
     }
 
     if (!$rid) {
-        inlog("ABORT: phone not matched");
-        http_response_code(200); echo "OK"; exit;
+        inlog("ABORT: phone not matched to any record — inbound from={$from}");
+        http_response_code(200);
+        echo "OK";
+        return;
     }
 
     /* ---------- Determine day ---------- */
     $day = get_today_day_number_from_baseline($baselineDate);
-    if (!$day) {
-        inlog("ABORT: cannot compute day for record {$rid}");
-        http_response_code(200); echo "OK"; exit;
+    if ($day === null) {
+        inlog(
+            "ABORT: cannot compute day — invalid or missing date_baseline for record {$rid}; raw value='{$baselineDate}'"
+        );
+        http_response_code(200);
+        echo "OK";
+        return;
     }
 
     /* ---------- Find earliest unanswered question ---------- */
@@ -231,7 +239,8 @@ try {
     }
 
     if (!$answerField) {
-        inlog("ABORT: no unanswered question record={$rid} day={$day}");
+        inlog(
+        "ABORT: no unanswered question — check question text and answers for record {$rid} day {$day}");
         http_response_code(200); echo "OK"; exit;
     }
 
