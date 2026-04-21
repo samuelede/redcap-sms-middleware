@@ -833,8 +833,11 @@ foreach($byRecord as $rid=>$insts){
         $MET_skipped++; continue; // silently ignore records beyond study window
     }
 
-    foreach($insts as $inst=>$row){
-        if($inst>$MAX_DAYS) $MET_skipped++; continue;
+    foreach ($insts as $inst => $row) {
+        if ($inst > $MAX_DAYS) {
+            $MET_skipped++;
+            continue;
+        }
 
         /* ---------- AUTO OPT-OUT if any answer == "0" ---------- */
         if (($row[$FIELD_OPT_OUT] ?? '') !== '0') {
@@ -858,8 +861,14 @@ foreach($byRecord as $rid=>$insts){
         }
         if(($row[$FIELD_OPT_OUT]??'')==='0') continue;
 
-        $nextQ=find_next_unanswered_question($row,$SEQUENCE);
-        if(!$nextQ) $MET_skipped++; continue;
+        $nextQ = find_next_unanswered_question($row, $SEQUENCE);
+        if (!$nextQ) {
+            $MET_skipped++;
+            continue;
+        }
+
+        logv("SEND-LOOP CHECK: record={$rid} inst={$inst} nextQ={$nextQ} qText=" .
+     (trim((string)($row[$nextQ] ?? '')) === '' ? 'EMPTY' : 'OK'));
 
         /* ---------- REMINDER: only within window & age threshold ---------- */
         if ($REM_ENABLED && allow_reminder_window($REM_W_START,$REM_W_END)) {
@@ -937,7 +946,7 @@ foreach($byRecord as $rid=>$insts){
             $prevVal = $row[$prevAnsField] ?? '';
 
             logv("CHECK {$nextQ}: prev={$prevAnsField} val='{$prevVal}' valid=".(is_answered_valid($prevVal)?'YES':'NO'));
-            
+
             if(!is_answered_valid($prevVal)){
                 logv("Record {$rid} Day {$inst} — {$nextQ} blocked: previous answer {$prevAnsField} missing/invalid");
                 $MET_skipped++; continue;
@@ -964,7 +973,7 @@ foreach($byRecord as $rid=>$insts){
         echo "<br>";
         $sentCount++;
     }    
-    $MET_checked++; $MET_sent++; 
+    $MET_checked++;
 }
 
 /* ------------------------------------------------------------
