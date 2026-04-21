@@ -15,6 +15,11 @@
  *      • LOG_DIR/help_state.json      (HELP rate-limiting + invalid-per-day markers)
  */
 
+$lockFile = sys_get_temp_dir() . '/send_outbound.lock';
+$lock = fopen($lockFile, 'c');
+if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+    exit; // another run in progress
+}
 
 require_once __DIR__ . '/config.php';
 error_log("STEP 1: send_outbound.php loaded");
@@ -951,3 +956,6 @@ echo "<p><b>Total messages sent this run: {$sentCount}</b></p>";
 echo "<p><b>Reminders sent this run: {$reminderSentCount}</b></p>";
 
 error_log("STEP 4: END OF SCRIPT");
+
+flock($lock, LOCK_UN);
+fclose($lock);
