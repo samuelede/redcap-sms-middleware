@@ -1,47 +1,36 @@
 <?php
 /**
- * send_inbound.php — FINAL DETERMINISTIC VERSION
- * Updated: 20 Apr 2026
+ * send_inbound.php — STABLE & SIMPLE VERSION
  *
- * SMS Works inbound handler.
+ * Responsibilities:
+ *  - Match phone → record (baseline event)
+ *  - Compute day from baseline
+ *  - Find earliest unanswered question for that day
+ *  - Save replies
  *
- * Rules:
- *  - Replies are mapped to the EARLIEST unanswered question for the current day
- *  - No reliance on outbound text (SMS Works does not echo it)
- *  - Late replies are logged but never mis-mapped
+ * Inbound does NOT:
+ *  - care whether a question was sent
+ *  - advance questions
+ *  - trigger outbound
  *
- * Valid replies:
- *   1..10  → save answer
- *   666    → save 666, advance
- *   0      → opt-out immediately
- *   HELP   → help auto-reply
- *   other  → help + delayed resend
+ * Outbound cron owns sequencing.
  */
 
 require_once __DIR__ . '/config.php';
 date_default_timezone_set($TIMEZONE);
 
 /* ------------------------------------------------------------
- * Logging (MUST be defined before first use)
+ * Logging
  * ------------------------------------------------------------ */
 if (!defined('LOG_DIR')) {
-    $base = dirname(__DIR__); // project root
+    $base = dirname(__DIR__);
     $logDir = $base . DIRECTORY_SEPARATOR . 'logs';
-
-    if (!is_dir($logDir)) {
-        @mkdir($logDir, 0775, true);
-    }
-
-    if (!is_dir($logDir) || !is_writable($logDir)) {
-        $logDir = sys_get_temp_dir(); // safe fallback
-    }
-
+    if (!is_dir($logDir)) @mkdir($logDir, 0775, true);
+    if (!is_writable($logDir)) $logDir = sys_get_temp_dir();
     define('LOG_DIR', $logDir);
 }
 
-$INBOUND_LOG = rtrim(LOG_DIR, DIRECTORY_SEPARATOR)
-             . DIRECTORY_SEPARATOR
-             . 'inbound.log';
+$INBOUND_LOG = LOG_DIR . DIRECTORY_SEPARATOR . 'inbound.log';
 
 function inlog($msg) {
     global $INBOUND_LOG;
@@ -51,40 +40,43 @@ function inlog($msg) {
         FILE_APPEND | LOCK_EX
     );
 }
+
 inlog('=== INBOUND START ===');
-
-/* ------------------------------------------------------------
- * FIRST safe log call
- * ------------------------------------------------------------ */
-inlog(
-    "DEBUG CONFIG: SMSW_JWT_RAW=".(isset($SMSW_JWT_RAW)?'SET':'MISSING')
-    .", SENDER_ID=".(isset($SENDER_ID)?'SET':'MISSING')
-);
-
-/* ------------------------------------------------------------
- * Configuration
- * ------------------------------------------------------------ */
-define('SPECIAL_SKIP_CODE', '666');
-define('INVALID_RESEND_DELAY_SECONDS', 7);
 
 /* ------------------------------------------------------------
  * Helpers
  * ------------------------------------------------------------ */
-function normalise_msisdn($raw) {
+define('SPECIAL_SKIP_CODE', '666');
+
+function normalise_msisdn($raw){
     $d = preg_replace('/\D+/', '', (string)$raw);
-    if (strpos($d, '07') === 0) return '44' . substr($d, 1);
+
+    // 07xxxxxxxxx → 447xxxxxxxxx
+    if (strpos($d, '07') === 0) {
+        return '44' . substr($d, 1);
+    }
+
+    // 7xxxxxxxxx → 447xxxxxxxxx (defensive)
+    if (strlen($d) === 10 && $d[0] === '7') {
+        return '44' . $d;
+    }
+
+    // Already E.164
+    if (strpos($d, '44') === 0) {
+        return $d;
+    }
+
     return $d;
 }
 
 function sanitize_int_1_10($s) {
-    if (!preg_match('/^-?\d+$/', trim($s))) return null;
+    if (!preg_match('/^\d+$/', trim($s))) return null;
     $v = (int)$s;
     return ($v >= 1 && $v <= 10) ? $v : null;
 }
 
 function get_today_day_number_from_baseline($baselineRaw){
     if (!$baselineRaw) return null;
-
     $raw = trim((string)$baselineRaw);
     $raw = preg_replace('/[\/\.]/', '-', $raw);
 
@@ -92,10 +84,9 @@ function get_today_day_number_from_baseline($baselineRaw){
         $dt = DateTime::createFromFormat($fmt, $raw);
         if ($dt && $dt->format('Y') >= 1900) {
             $today = new DateTime('today');
-            return (int)$dt->diff($today)->format('%a'); // Day 0 baseline
+            return (int)$dt->diff($today)->format('%a');
         }
     }
-
     return null;
 }
 
@@ -128,12 +119,8 @@ function redcap_export_records($token, $url, array $fields, array $events) {
         'format' => 'json',
         'type' => 'flat'
     ];
-    foreach ($fields as $i => $f) {
-        $p["fields[$i]"] = $f;
-    }
-    foreach ($events as $i => $e) {
-        $p["events[$i]"] = $e;
-    }
+    foreach ($fields as $i => $f) $p["fields[$i]"] = $f;
+    foreach ($events as $i => $e) $p["events[$i]"] = $e;
     return json_decode(redcap_api_post($url, $p), true);
 }
 
@@ -157,17 +144,14 @@ function send_help_sms_smsworks($to, $text) {
 
     $sender = function_exists('current_sender_id')
         ? current_sender_id()
-        : (defined('SENDER_ID') ? SENDER_ID : ($GLOBALS['SENDER_ID'] ?? null));
+        : (defined('SENDER_ID') ? SENDER_ID : null);
 
-    if (empty($SMSW_JWT_RAW) || empty($sender)) {
-        inlog("HELP SEND ABORTED: missing SMSW_JWT_RAW or sender");
-        return false;
-    }
+    if (!$sender || !$SMSW_JWT_RAW) return;
 
     $endpoint = "https://api.thesmsworks.co.uk/v1/message/send";
     $toNorm = normalise_msisdn($to);
 
-    $authHeader = (stripos($SMSW_JWT_RAW, 'JWT ') === 0)
+    $auth = stripos($SMSW_JWT_RAW, 'JWT ') === 0
         ? "Authorization: {$SMSW_JWT_RAW}"
         : "Authorization: JWT {$SMSW_JWT_RAW}";
 
@@ -179,30 +163,15 @@ function send_help_sms_smsworks($to, $text) {
 
     $ch = curl_init();
     curl_setopt_array($ch, [
-        CURLOPT_URL            => $endpoint,
-        CURLOPT_POST           => true,
+        CURLOPT_URL => $endpoint,
+        CURLOPT_POST => true,
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER     => [
-            $authHeader,
-            'Content-Type: application/json'
-        ],
-        CURLOPT_POSTFIELDS     => json_encode($body),
+        CURLOPT_HTTPHEADER => [$auth, 'Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => json_encode($body),
         CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_TIMEOUT        => 15,
     ]);
-
-    $resp = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err  = curl_error($ch);
+    curl_exec($ch);
     curl_close($ch);
-
-    if ($code < 200 || $code >= 300) {
-        inlog("HELP SEND FAILED: HTTP {$code} resp={$resp} err={$err}");
-        return false;
-    }
-
-    inlog("HELP SENT OK to {$toNorm} from {$sender}");
-    return true;
 }
 
 /* ------------------------------------------------------------
@@ -212,22 +181,18 @@ try {
     $raw = file_get_contents('php://input');
     $payload = json_decode($raw, true) ?: $_POST ?: $_GET;
 
-    // SMS Works payload normalisation
     $from = $payload['source'] ?? $payload['from'] ?? '';
     $text = trim((string)($payload['content'] ?? ''));
 
     inlog("RECEIVED from={$from} content='{$text}'");
-    // Parse numeric score (1–10) once
-    $score = sanitize_int_1_10($text);
 
     if ($text === '') {
-        inlog("ABORT: empty content (likely browser access, delivery report, or malformed inbound payload)");
-        http_response_code(200);
-        echo "OK";
-        return;
+        http_response_code(200); echo "OK"; exit;
     }
 
-    /* ---------- Find record by phone ---------- */
+    $score = sanitize_int_1_10($text);
+
+    /* ---------- Phone → record (baseline event) ---------- */
     $baseline = redcap_export_records(
         $REDCAP_API_TOKEN,
         $REDCAP_API_URL,
@@ -246,21 +211,15 @@ try {
     }
 
     if (!$rid) {
-        inlog("ABORT: phone not matched to any record — inbound from={$from}");
-        http_response_code(200);
-        echo "OK";
-        return;
+        inlog("ABORT: phone not matched to any record");
+        http_response_code(200); echo "OK"; exit;
     }
 
-    /* ---------- Determine day ---------- */
+    /* ---------- Day ---------- */
     $day = get_today_day_number_from_baseline($baselineDate);
     if ($day === null) {
-        inlog(
-            "ABORT: cannot compute day — invalid or missing date_baseline for record {$rid}; raw value='{$baselineDate}'"
-        );
-        http_response_code(200);
-        echo "OK";
-        return;
+        inlog("ABORT: cannot compute day");
+        http_response_code(200); echo "OK"; exit;
     }
 
     /* ---------- Find earliest unanswered question ---------- */
@@ -275,43 +234,14 @@ try {
     foreach ($rows as $row) {
         if ((int)$row['record_id'] !== $rid) continue;
         if ((int)($row['redcap_repeat_instance'] ?? 0) !== $day) continue;
-        foreach ($SEQUENCE as $s) {
-            $ansField = $s['a'];
-            $qCode    = $s['q'];
 
-            // answer must be empty
-            if (trim((string)($row[$ansField] ?? '')) !== '') {
-                continue;
-            }
-
-            // question must have been sent
-            $provField = $SMSW_FIELD_MAP[$qCode]['prov'] ?? null;
-            if ($provField && empty(trim((string)($row[$provField] ?? '')))) {
-                // Question not sent yet → do NOT accept reply
-                continue;
-            }
-
-            // ✅ This is the active question
-            $answerField = $ansField;
-            break 2;
-        }
-    }
-    
-    // DEBUG: show which unanswered fields inbound sees
-    $unanswered = [];
-    foreach ($rows as $row) {
-        if ((int)$row['record_id'] !== $rid) continue;
-        if ((int)($row['redcap_repeat_instance'] ?? 0) !== $day) continue;
         foreach ($SEQUENCE as $s) {
             if (trim((string)($row[$s['a']] ?? '')) === '') {
-                $unanswered[] = $s['a'];
+                $answerField = $s['a'];
+                break 2;
             }
         }
     }
-    inlog(
-        "DEBUG inbound scan record={$rid} day={$day} — unanswered answer fields=" .
-        json_encode(array_values(array_unique($unanswered)))
-    );
 
     $base = [
         'record_id' => $rid,
@@ -322,157 +252,62 @@ try {
 
     /* ---------- OPT-OUT ---------- */
     if ($text === '0') {
-
-        inlog("OPT-OUT received record={$rid} day={$day}");
-
-        if ($day > 0) {
-            $optRow = [
-                'record_id'                => $rid,
-                'redcap_event_name'        => $FOLLOWUP_EVENT,
-                'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
-                'redcap_repeat_instance'   => $day,
-                $FIELD_OPT_OUT             => '0'
-            ];
-
-            try {
-                redcap_import_records(
-                    $REDCAP_API_TOKEN,
-                    $REDCAP_API_URL,
-                    [$optRow]
-                );
-                inlog("OPT-OUT recorded in REDCap for record {$rid} day {$day}");
-            } catch (Throwable $e) {
-                inlog("OPT-OUT REDCap write failed for record {$rid} day {$day}: ".$e->getMessage());
-            }
-        } else {
-            inlog("OPT-OUT on Day 0 — not writing follow-up opt-out");
-        }
-
-        // Optional: confirmation SMS
-        // send_help_sms_smsworks($from, "You will no longer receive messages. Thank you.");
-
-        http_response_code(200);
-        echo "OK";
-        exit;
+        $row = $base;
+        $row[$FIELD_OPT_OUT] = '0';
+        redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
+        inlog("OPT-OUT record={$rid} day={$day}");
+        http_response_code(200); echo "OK"; exit;
     }
-
-    /* ============================================================
-    * CONTROL RESPONSES — must be handled FIRST
-    * ============================================================ */
 
     /* ---------- HELP ---------- */
     if (strtoupper($text) === 'HELP') {
+        $row = $base;
+        $row['help_requested'] = '1';
+        redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
 
-        inlog("HELP received record={$rid} day={$day}");
+        send_help_sms_smsworks(
+            $from,
+            defined('HELP_AUTOREPLY_TEXT')
+                ? HELP_AUTOREPLY_TEXT
+                : "Reply 1–10 for your score today. Reply 0 to stop messages."
+        );
 
-        if ($day > 0) {
-            $helpRow = [
-                'record_id'                => $rid,
-                'redcap_event_name'        => $FOLLOWUP_EVENT,
-                'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
-                'redcap_repeat_instance'   => $day,
-                'help_requested'           => '1'   // coded value
-            ];
-            redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$helpRow]);
-        }
-
-        $helpText = defined('HELP_AUTOREPLY_TEXT')
-            ? HELP_AUTOREPLY_TEXT
-            : "Reply 1–10 for your score today. Reply 0 to stop messages.";
-
-        send_help_sms_smsworks($from, $helpText);
-
-        http_response_code(200);
-        echo "OK";
-        exit;
+        inlog("HELP record={$rid} day={$day}");
+        http_response_code(200); echo "OK"; exit;
     }
 
-    /* ---------- 666 (Unknown / Haven’t tried) ---------- */
+    /* ---------- 666 ---------- */
     if ($text === SPECIAL_SKIP_CODE) {
-
-        inlog("666 received record={$rid} day={$day}");
-
-        if ($day > 0) {
-
-            // Find first unanswered answer field WITHOUT requiring provider-id
-            $rows = redcap_export_records(
-                $REDCAP_API_TOKEN,
-                $REDCAP_API_URL,
-                array_merge(['record_id'], array_column($SEQUENCE, 'a')),
-                [$FOLLOWUP_EVENT]
-            );
-
-            $answerField = null;
-            foreach ($rows as $row) {
-                if ((int)$row['record_id'] !== $rid) continue;
-                if ((int)($row['redcap_repeat_instance'] ?? 0) !== $day) continue;
-
-                foreach ($SEQUENCE as $s) {
-                    if (trim((string)($row[$s['a']] ?? '')) === '') {
-                        $answerField = $s['a'];
-                        break 2;
-                    }
-                }
-            }
-
-            if ($answerField) {
-                $row = [
-                    'record_id'                => $rid,
-                    'redcap_event_name'        => $FOLLOWUP_EVENT,
-                    'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
-                    'redcap_repeat_instance'   => $day,
-                    $answerField               => '666'
-                ];
-                redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
-                inlog("666 recorded in {$answerField} for record {$rid} day {$day}");
-            }
+        if ($answerField) {
+            $row = $base;
+            $row[$answerField] = '666';
+            redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
+            inlog("666 record={$rid} {$answerField}");
         }
-
-        // no SMS feedback; cron will send next question
-        http_response_code(200);
-        echo "OK";
-        exit;
+        http_response_code(200); echo "OK"; exit;
     }
 
     /* ---------- VALID 1–10 ---------- */
     if ($score !== null) {
-
-        if (!$answerField) {
-            inlog("INVALID numeric reply — no active sent question for record {$rid} day {$day}");
-            $helpText = defined('HELP_AUTOREPLY_TEXT')
-                ? HELP_AUTOREPLY_TEXT
-                : "Reply 1–10 after receiving a question. Reply HELP for help.";
-
-            send_help_sms_smsworks($from, $helpText);
-            http_response_code(200);
-            echo "OK";
-            exit;
+        if ($answerField) {
+            $row = $base;
+            $row[$answerField] = (string)$score;
+            redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
+            inlog("ANSWER record={$rid} day={$day} {$answerField}={$score}");
         }
-
-        $row = $base;
-        $row[$answerField] = (string)$score;
-        redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
-
-        inlog("ANSWER record={$rid} day={$day} {$answerField}={$score}");
-        http_response_code(200);
-        echo "OK";
-        return;
+        http_response_code(200); echo "OK"; exit;
     }
 
     /* ---------- INVALID ---------- */
-    inlog(
-        "INVALID record={$rid} day={$day} text='{$text}' — no active sent question"
+    send_help_sms_smsworks(
+        $from,
+        defined('HELP_AUTOREPLY_TEXT')
+            ? HELP_AUTOREPLY_TEXT
+            : "Reply 1–10 for your score today. Reply 0 to stop messages. Reply HELP for help."
     );
 
-    $helpText = defined('HELP_AUTOREPLY_TEXT')
-        ? HELP_AUTOREPLY_TEXT
-        : "Reply 1–10 for your score today. Reply 0 to stop messages. Reply HELP for help.";
-
-    send_help_sms_smsworks($from, $helpText);
-
-    http_response_code(200);
-    echo "OK";
-    exit;
+    inlog("INVALID record={$rid} day={$day} text='{$text}'");
+    http_response_code(200); echo "OK"; exit;
 
 } catch (Throwable $e) {
     inlog("UNCAUGHT ".$e->getMessage());
