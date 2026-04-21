@@ -276,26 +276,73 @@ try {
         http_response_code(200); echo "OK"; exit;
     }
 
-    /* ---------- 666 ---------- */
-    if ($text === SPECIAL_SKIP_CODE) {
-        if ($answerField) {
-            $row = $base;
-            $row[$answerField] = '666';
-            redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
-            inlog("666 record={$rid} {$answerField}");
-        }
-        http_response_code(200); echo "OK"; exit;
-    }
+    /* ---------- ANSWERS (1–10 or 666) ---------- */
+    if ($text === SPECIAL_SKIP_CODE || $score !== null) {
 
-    /* ---------- VALID 1–10 ---------- */
-    if ($score !== null) {
         if ($answerField) {
             $row = $base;
-            $row[$answerField] = (string)$score;
+            $row[$answerField] = ($text === SPECIAL_SKIP_CODE ? '666' : (string)$score);
             redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
-            inlog("ANSWER record={$rid} day={$day} {$answerField}={$score}");
+
+            inlog("ANSWER record={$rid} day={$day} {$answerField}={$row[$answerField]}");
         }
-        http_response_code(200); echo "OK"; exit;
+
+        /* ============================================================
+        * MARK FOLLOW-UP INSTRUMENT COMPLETE
+        * (666 counts as answered)
+        * ============================================================ */
+
+        $requiredAnswers = [
+            'q1a_answer','q1b_answer',
+            'q2a_answer','q2b_answer',
+            'q3a_answer','q3b_answer',
+            'q4a_answer','q4b_answer',
+            'q5a_answer','q5b_answer'
+        ];
+
+        $checkRows = redcap_export_records(
+            $REDCAP_API_TOKEN,
+            $REDCAP_API_URL,
+            array_merge(
+                ['record_id', $FOLLOWUP_REPEAT_INSTR . '_complete'],
+                $requiredAnswers
+            ),
+            [$FOLLOWUP_EVENT]
+        );
+
+        foreach ($checkRows as $r) {
+            if ((int)$r['record_id'] !== $rid) continue;
+            if ((int)($r['redcap_repeat_instance'] ?? 0) !== $day) continue;
+
+            foreach ($requiredAnswers as $f) {
+                if (trim((string)($r[$f] ?? '')) === '') {
+                    http_response_code(200);
+                    echo "OK";
+                    exit;
+                }
+            }
+
+            $completeRow = [
+                'record_id'                => $rid,
+                'redcap_event_name'        => $FOLLOWUP_EVENT,
+                'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
+                'redcap_repeat_instance'   => $day,
+                $FOLLOWUP_REPEAT_INSTR . '_complete' => '2'
+            ];
+
+            redcap_import_records(
+                $REDCAP_API_TOKEN,
+                $REDCAP_API_URL,
+                [$completeRow]
+            );
+
+            inlog("FORM COMPLETE record={$rid} day={$day}");
+            break;
+        }
+
+        http_response_code(200);
+        echo "OK";
+        exit;
     }
 
     /* ---------- INVALID ---------- */
