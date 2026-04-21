@@ -137,32 +137,6 @@ function redcap_import_records($token, $url, array $rows) {
 }
 
 /* ------------------------------------------------------------
- * Fire-and-forget outbound trigger
- * ------------------------------------------------------------ */
-function trigger_outbound() {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'];
-    $path = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
-    $url = $scheme . '://' . $host . $path . '/send_outbound.php?autotrigger=1';
-
-    $u = parse_url($url);
-    $fp = @fsockopen(
-        ($u['scheme'] === 'https' ? 'ssl://' : '') . $u['host'],
-        $u['scheme'] === 'https' ? 443 : 80,
-        $e,
-        $es,
-        1
-    );
-    if ($fp) {
-        fwrite(
-            $fp,
-            "GET {$u['path']}?{$u['query']} HTTP/1.1\r\nHost: {$u['host']}\r\nConnection: Close\r\n\r\n"
-        );
-        fclose($fp);
-    }
-}
-
-/* ------------------------------------------------------------
  * MAIN
  * ------------------------------------------------------------ */
 try {
@@ -174,6 +148,8 @@ try {
     $text = trim((string)($payload['content'] ?? ''));
 
     inlog("RECEIVED from={$from} content='{$text}'");
+    // Parse numeric score (1–10) once
+    $score = sanitize_int_1_10($text);
 
     if ($text === '') {
         inlog("ABORT: empty content (likely browser access, delivery report, or malformed inbound payload)");
@@ -237,6 +213,22 @@ try {
             }
         }
     }
+    
+    // DEBUG: show which unanswered fields inbound sees
+    $unanswered = [];
+    foreach ($rows as $row) {
+        if ((int)$row['record_id'] !== $rid) continue;
+        if ((int)($row['redcap_repeat_instance'] ?? 0) !== $day) continue;
+        foreach ($SEQUENCE as $s) {
+            if (trim((string)($row[$s['a']] ?? '')) === '') {
+                $unanswered[] = $s['a'];
+            }
+        }
+    }
+    inlog(
+        "DEBUG inbound scan record={$rid} day={$day} — unanswered answer fields=" .
+        json_encode(array_values(array_unique($unanswered)))
+    );
 
     if (!$answerField) {
         inlog(
@@ -253,46 +245,57 @@ try {
 
     /* ---------- OPT-OUT ---------- */
     if ($text === '0') {
-        $row = $base; $row[$FIELD_OPT_OUT] = '0';
-        redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
+        $row = $base;
+        $row[$FIELD_OPT_OUT] = '0';
+        redcap_import_records(...);
+
         inlog("OPT-OUT record={$rid} day={$day}");
-        trigger_outbound();
-        http_response_code(200); echo "OK"; exit;
+        http_response_code(200);
+        echo "OK";
+        return;
     }
 
     /* ---------- HELP ---------- */
     if (strtoupper($text) === 'HELP') {
         inlog("HELP record={$rid} day={$day}");
-        trigger_outbound();
         http_response_code(200); echo "OK"; exit;
     }
 
     /* ---------- SPECIAL 666 ---------- */
     if ($text === SPECIAL_SKIP_CODE) {
-        $row = $base; $row[$answerField] = SPECIAL_SKIP_CODE;
-        redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
-        inlog("SPECIAL-666 record={$rid} day={$day} {$answerField}=666");
-        trigger_outbound();
-        http_response_code(200); echo "OK"; exit;
+        $row = $base;
+        $row[$answerField] = SPECIAL_SKIP_CODE;
+        redcap_import_records(...);
+
+        inlog("SPECIAL-666 record={$rid} day={$day}");
+        http_response_code(200);
+        echo "OK";
+        return;
     }
 
     /* ---------- VALID 1–10 ---------- */
-    $score = sanitize_int_1_10($text);
     if ($score !== null) {
-        $row = $base; $row[$answerField] = (string)$score;
+        $row = $base;
+        $row[$answerField] = (string)$score;
         redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
+
         inlog("ANSWER record={$rid} day={$day} {$answerField}={$score}");
-        trigger_outbound();
-        http_response_code(200); echo "OK"; exit;
+        http_response_code(200);
+        echo "OK";
+        return;
     }
 
     /* ---------- INVALID ---------- */
-    inlog("INVALID record={$rid} day={$day} text='{$text}'");
-    trigger_outbound();
-    sleep(INVALID_RESEND_DELAY_SECONDS);
-    inlog("INVALID-RETRY record={$rid} day={$day}");
-    trigger_outbound();
-    http_response_code(200); echo "OK"; exit;
+    inlog(
+        "INVALID record={$rid} day={$day} text='{$text}' — no valid unanswered question or out-of-range response"
+    );
+
+    // Optional: send HELP auto-reply here if you want
+    // (do NOT advance state, do NOT trigger outbound)
+
+    http_response_code(200);
+    echo "OK";
+    exit;
 
 } catch (Throwable $e) {
     inlog("UNCAUGHT ".$e->getMessage());
