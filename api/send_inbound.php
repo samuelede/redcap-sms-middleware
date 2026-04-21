@@ -313,12 +313,6 @@ try {
         json_encode(array_values(array_unique($unanswered)))
     );
 
-    if (!$answerField) {
-        inlog(
-        "ABORT: no unanswered question — check question text and answers for record {$rid} day {$day}");
-        http_response_code(200); echo "OK"; exit;
-    }
-
     $base = [
         'record_id' => $rid,
         'redcap_event_name' => $FOLLOWUP_EVENT,
@@ -361,7 +355,11 @@ try {
         echo "OK";
         exit;
     }
-      
+
+    /* ============================================================
+    * CONTROL RESPONSES — must be handled FIRST
+    * ============================================================ */
+
     /* ---------- HELP ---------- */
     if (strtoupper($text) === 'HELP') {
 
@@ -373,23 +371,11 @@ try {
                 'redcap_event_name'        => $FOLLOWUP_EVENT,
                 'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
                 'redcap_repeat_instance'   => $day,
-                'help_requested'           => 'HELP'
+                'help_requested'           => '1'   // coded value
             ];
-
-            inlog("HELP DEBUG: importing ".json_encode($helpRow));
-
-            $resp = redcap_import_records(
-                $REDCAP_API_TOKEN,
-                $REDCAP_API_URL,
-                [$helpRow]
-            );
-
-            inlog("HELP DEBUG: REDCap response ".json_encode($resp));
-        } else {
-            inlog("HELP on Day 0 — not writing help_requested");
+            redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$helpRow]);
         }
 
-        // Always send HELP SMS
         $helpText = defined('HELP_AUTOREPLY_TEXT')
             ? HELP_AUTOREPLY_TEXT
             : "Reply 1–10 for your score today. Reply 0 to stop messages.";
@@ -401,41 +387,48 @@ try {
         exit;
     }
 
-    /* ---------- 666 (Unknown / Haven't tried today) ---------- */
+    /* ---------- 666 (Unknown / Haven’t tried) ---------- */
     if ($text === SPECIAL_SKIP_CODE) {
 
-        inlog("666 received record={$rid} day={$day} — unknown / haven't tried today");
+        inlog("666 received record={$rid} day={$day}");
 
-        if ($day > 0 && !empty($answerField)) {
+        if ($day > 0) {
 
-            $row = [
-                'record_id'                => $rid,
-                'redcap_event_name'        => $FOLLOWUP_EVENT,
-                'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
-                'redcap_repeat_instance'   => $day,
-                $answerField               => SPECIAL_SKIP_CODE  // 666
-            ];
+            // Find first unanswered answer field WITHOUT requiring provider-id
+            $rows = redcap_export_records(
+                $REDCAP_API_TOKEN,
+                $REDCAP_API_URL,
+                array_merge(['record_id'], array_column($SEQUENCE, 'a')),
+                [$FOLLOWUP_EVENT]
+            );
 
-            try {
-                redcap_import_records(
-                    $REDCAP_API_TOKEN,
-                    $REDCAP_API_URL,
-                    [$row]
-                );
-                inlog("666 recorded in {$answerField} for record {$rid} day {$day}");
-            } catch (Throwable $e) {
-                inlog("666 REDCap write failed for record {$rid} day {$day}: ".$e->getMessage());
+            $answerField = null;
+            foreach ($rows as $row) {
+                if ((int)$row['record_id'] !== $rid) continue;
+                if ((int)($row['redcap_repeat_instance'] ?? 0) !== $day) continue;
+
+                foreach ($SEQUENCE as $s) {
+                    if (trim((string)($row[$s['a']] ?? '')) === '') {
+                        $answerField = $s['a'];
+                        break 2;
+                    }
+                }
             }
 
-        } else {
-            inlog("666 received but no valid follow-up instance or answer field");
+            if ($answerField) {
+                $row = [
+                    'record_id'                => $rid,
+                    'redcap_event_name'        => $FOLLOWUP_EVENT,
+                    'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
+                    'redcap_repeat_instance'   => $day,
+                    $answerField               => '666'
+                ];
+                redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
+                inlog("666 recorded in {$answerField} for record {$rid} day {$day}");
+            }
         }
 
-        // IMPORTANT:
-        // - no SMS feedback
-        // - no outbound trigger
-        // - cron will naturally send the next question
-
+        // no SMS feedback; cron will send next question
         http_response_code(200);
         echo "OK";
         exit;
@@ -443,6 +436,19 @@ try {
 
     /* ---------- VALID 1–10 ---------- */
     if ($score !== null) {
+
+        if (!$answerField) {
+            inlog("INVALID numeric reply — no active sent question for record {$rid} day {$day}");
+            $helpText = defined('HELP_AUTOREPLY_TEXT')
+                ? HELP_AUTOREPLY_TEXT
+                : "Reply 1–10 after receiving a question. Reply HELP for help.";
+
+            send_help_sms_smsworks($from, $helpText);
+            http_response_code(200);
+            echo "OK";
+            exit;
+        }
+
         $row = $base;
         $row[$answerField] = (string)$score;
         redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
