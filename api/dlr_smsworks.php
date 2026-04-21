@@ -21,10 +21,25 @@
  *
  * Security (optional, recommended):
  *  - Set an env var SMSW_DLR_SHARED_SECRET and require ?secret=<value> on the URL.
+ * * IMPORTANT:
+ * This endpoint handles DELIVERY REPORTS ONLY.
+ * It must NEVER be used for inbound SMS replies.
+ *
+ * Inbound replies are handled exclusively by send_inbound.php
  */
 
 require_once __DIR__ . '/config.php';
 date_default_timezone_set($TIMEZONE);
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo "Method Not Allowed";
+    exit;
+}
+
+if (empty($payload['messageid'])) {
+    error_log("DLR WARNING: payload missing messageid: " . json_encode($payload));
+}
 
 /* ------------ Optional shared-secret check ------------- */
 $shared = getenv('SMSW_DLR_SHARED_SECRET');
