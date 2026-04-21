@@ -314,20 +314,77 @@ try {
 
     /* ---------- OPT-OUT ---------- */
     if ($text === '0') {
-        $row = $base;
-        $row[$FIELD_OPT_OUT] = '0';
-        redcap_import_records(...);
 
-        inlog("OPT-OUT record={$rid} day={$day}");
+        inlog("OPT-OUT received record={$rid} day={$day}");
+
+        if ($day > 0) {
+            $optRow = [
+                'record_id'                => $rid,
+                'redcap_event_name'        => $FOLLOWUP_EVENT,
+                'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
+                'redcap_repeat_instance'   => $day,
+                $FIELD_OPT_OUT             => '0'
+            ];
+
+            try {
+                redcap_import_records(
+                    $REDCAP_API_TOKEN,
+                    $REDCAP_API_URL,
+                    [$optRow]
+                );
+                inlog("OPT-OUT recorded in REDCap for record {$rid} day {$day}");
+            } catch (Throwable $e) {
+                inlog("OPT-OUT REDCap write failed for record {$rid} day {$day}: ".$e->getMessage());
+            }
+        } else {
+            inlog("OPT-OUT on Day 0 — not writing follow-up opt-out");
+        }
+
+        // Optional: confirmation SMS
+        // send_help_sms_smsworks($from, "You will no longer receive messages. Thank you.");
+
         http_response_code(200);
         echo "OK";
-        return;
+        exit;
     }
-
+      
     /* ---------- HELP ---------- */
     if (strtoupper($text) === 'HELP') {
-        inlog("HELP record={$rid} day={$day}");
-        http_response_code(200); echo "OK"; exit;
+
+        inlog("HELP received record={$rid} day={$day}");
+
+        if ($day > 0) {
+            $helpRow = [
+                'record_id'                => $rid,
+                'redcap_event_name'        => $FOLLOWUP_EVENT,
+                'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
+                'redcap_repeat_instance'   => $day,
+                'help_requested'           => 'HELP'
+            ];
+
+            inlog("HELP DEBUG: importing ".json_encode($helpRow));
+
+            $resp = redcap_import_records(
+                $REDCAP_API_TOKEN,
+                $REDCAP_API_URL,
+                [$helpRow]
+            );
+
+            inlog("HELP DEBUG: REDCap response ".json_encode($resp));
+        } else {
+            inlog("HELP on Day 0 — not writing help_requested");
+        }
+
+        // Always send HELP SMS
+        $helpText = defined('HELP_AUTOREPLY_TEXT')
+            ? HELP_AUTOREPLY_TEXT
+            : "Reply 1–10 for your score today. Reply 0 to stop messages.";
+
+        send_help_sms_smsworks($from, $helpText);
+
+        http_response_code(200);
+        echo "OK";
+        exit;
     }
 
     /* ---------- SPECIAL 666 ---------- */
