@@ -387,16 +387,44 @@ try {
         exit;
     }
 
-    /* ---------- SPECIAL 666 ---------- */
+    /* ---------- 666 (Unknown / Haven't tried today) ---------- */
     if ($text === SPECIAL_SKIP_CODE) {
-        $row = $base;
-        $row[$answerField] = SPECIAL_SKIP_CODE;
-        redcap_import_records(...);
 
-        inlog("SPECIAL-666 record={$rid} day={$day}");
+        inlog("666 received record={$rid} day={$day} — unknown / haven't tried today");
+
+        if ($day > 0 && !empty($answerField)) {
+
+            $row = [
+                'record_id'                => $rid,
+                'redcap_event_name'        => $FOLLOWUP_EVENT,
+                'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
+                'redcap_repeat_instance'   => $day,
+                $answerField               => SPECIAL_SKIP_CODE  // 666
+            ];
+
+            try {
+                redcap_import_records(
+                    $REDCAP_API_TOKEN,
+                    $REDCAP_API_URL,
+                    [$row]
+                );
+                inlog("666 recorded in {$answerField} for record {$rid} day {$day}");
+            } catch (Throwable $e) {
+                inlog("666 REDCap write failed for record {$rid} day {$day}: ".$e->getMessage());
+            }
+
+        } else {
+            inlog("666 received but no valid follow-up instance or answer field");
+        }
+
+        // IMPORTANT:
+        // - no SMS feedback
+        // - no outbound trigger
+        // - cron will naturally send the next question
+
         http_response_code(200);
         echo "OK";
-        return;
+        exit;
     }
 
     /* ---------- VALID 1–10 ---------- */
