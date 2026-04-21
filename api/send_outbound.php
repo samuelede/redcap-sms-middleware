@@ -321,9 +321,21 @@ function find_next_unanswered_question($row,$sequence){
     }
     return null;
 }
-function is_answered_1to10($val){
-    $t=trim((string)$val);
-    return $t!=='' && ctype_digit($t) && (int)$t>=1 && (int)$t<=10;
+function is_answered_valid($val){
+    $t = trim((string)$val);
+    if ($t === '') return false;
+
+    // Numeric 1–10 = valid
+    if (ctype_digit($t) && (int)$t >= 1 && (int)$t <= 10) {
+        return true;
+    }
+
+    // 666 = unknown / haven't tried today
+    if ($t === '666') {
+        return true;
+    }
+
+    return false;
 }
 
 // strict within-day prerequisites
@@ -923,7 +935,10 @@ foreach($byRecord as $rid=>$insts){
         $prevAnsField = $PREV_ANSWER[$nextQ] ?? null;
         if($prevAnsField){
             $prevVal = $row[$prevAnsField] ?? '';
-            if(!is_answered_1to10($prevVal)){
+
+            logv("CHECK {$nextQ}: prev={$prevAnsField} val='{$prevVal}' valid=".(is_answered_valid($prevVal)?'YES':'NO'));
+            
+            if(!is_answered_valid($prevVal)){
                 logv("Record {$rid} Day {$inst} — {$nextQ} blocked: previous answer {$prevAnsField} missing/invalid");
                 $MET_skipped++; continue;
             }
