@@ -2,93 +2,93 @@
 /**
  * scheduler_tomorrow.php
  *
- * Pre-create tomorrow’s instance for each record (<= MAX_DAYS)
- * and set date_assessment to baseline+(N-1) days (Y-m-d).
- * Never sends SMS. Intended for a nightly cron at ~00:05.
- * - Logs to logs/scheduler_tomorrow.log (auto-creates folder)
- * - Use ?verbose=1 to echo details to browser/CLI
+ * Pre-create the NEXT follow-up instance for each record (<= MAX_DAYS).
+ * Instance numbers are SEQUENTIAL (never calendar-based).
+ * date_assessment = baseline date + instance number (days), Y-m-d.
+ *
+ * Intended for nightly cron (~00:05).
  */
 
 require_once __DIR__ . '/config.php';
 date_default_timezone_set($TIMEZONE);
 
 /* ---------------------------------------------------------
- * Log directory & file
+ * Logging
  * --------------------------------------------------------- */
 if (!defined('LOG_DIR')) {
     $try = realpath(__DIR__ . '/../logs');
     if (!$try) $try = __DIR__ . '/logs';
     define('LOG_DIR', $try);
 }
-if (!is_dir(LOG_DIR)) { @mkdir(LOG_DIR, 0775, true); }
+if (!is_dir(LOG_DIR)) @mkdir(LOG_DIR, 0775, true);
 
-$LOG_FILE = rtrim(LOG_DIR, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'scheduler_tomorrow.log';
-$MAX_LOG_BYTES = 5 * 1024 * 1024;
-if (is_file($LOG_FILE) && filesize($LOG_FILE) > $MAX_LOG_BYTES) {
-    @rename($LOG_FILE, $LOG_FILE . '.' . date('Ymd_His'));
-}
-
+$LOG_FILE = LOG_DIR . '/scheduler_tomorrow.log';
 $VERBOSE = isset($_GET['verbose']) && $_GET['verbose'] !== '0';
 
-function log_to_file($s){ global $LOG_FILE; @file_put_contents($LOG_FILE,'['.date('Y-m-d H:i:s').'] '.$s.PHP_EOL, FILE_APPEND|LOCK_EX); }
-function logv($m){ global $VERBOSE; log_to_file($m); if ($VERBOSE) echo "[",date('H:i:s'),"] ",htmlspecialchars($m),"<br>\n"; }
+function logv($m){
+    global $LOG_FILE, $VERBOSE;
+    @file_put_contents($LOG_FILE, '['.date('Y-m-d H:i:s')."] $m\n", FILE_APPEND|LOCK_EX);
+    if ($VERBOSE) echo "[",date('H:i:s'),"] ",htmlspecialchars($m),"<br>\n";
+}
 
-log_to_file(str_repeat('-', 60));
-log_to_file('Run started: scheduler_tomorrow.php time=' . date('c'));
+logv(str_repeat('-',60));
+logv("Run started");
 
 /* ---------------------------------------------------------
- * Config guards / defaults
+ * Defaults
  * --------------------------------------------------------- */
-if (!isset($FIELD_ASSESSMENT_DATE) || !$FIELD_ASSESSMENT_DATE) {
-    $FIELD_ASSESSMENT_DATE = 'date_assessment';
-}
-if (!isset($MAX_DAYS) || !$MAX_DAYS) {
-    $MAX_DAYS = 999; // sensible default if not set in config.php
-}
+if (empty($FIELD_ASSESSMENT_DATE)) $FIELD_ASSESSMENT_DATE = 'date_assessment';
+if (empty($MAX_DAYS)) $MAX_DAYS = 999;
 
 /* ---------------------------------------------------------
  * REDCap helpers
  * --------------------------------------------------------- */
-function rc_post($url,$data){
-    $ch=curl_init();
+function rc_post($data){
+    $ch = curl_init();
     curl_setopt_array($ch,[
-        CURLOPT_URL=>$url, CURLOPT_POST=>true, CURLOPT_RETURNTRANSFER=>true,
-        CURLOPT_SSL_VERIFYPEER=>true, CURLOPT_POSTFIELDS=>$data
+        CURLOPT_URL=>$GLOBALS['REDCAP_API_URL'],
+        CURLOPT_POST=>true,
+        CURLOPT_RETURNTRANSFER=>true,
+        CURLOPT_SSL_VERIFYPEER=>true,
+        CURLOPT_POSTFIELDS=>$data
     ]);
-    $out=curl_exec($ch); $code=curl_getinfo($ch,CURLINFO_HTTP_CODE); $err=curl_error($ch); curl_close($ch);
-    if($code!==200) throw new RuntimeException("REDCap API error ($code): $out :: $err");
-    $j=json_decode($out,true);
-    return $j ?? $out;
+    $out=curl_exec($ch);
+    $code=curl_getinfo($ch,CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if($code!==200) throw new RuntimeException($out);
+    return json_decode($out,true);
 }
-function rc_export($fields,$events=[],$filterLogic=''){
-    $p=['token'=>$GLOBALS['REDCAP_API_TOKEN'],'content'=>'record','format'=>'json','type'=>'flat','filterLogic'=>$filterLogic];
-    // Guard against NULL/empty fields
+
+function rc_export($fields,$events=[]){
+    $p=['token'=>$GLOBALS['REDCAP_API_TOKEN'],'content'=>'record','format'=>'json','type'=>'flat'];
     $i=0; foreach($fields as $f){ if($f){ $p["fields[$i]"]=$f; $i++; } }
     foreach($events as $j=>$e) $p["events[$j]"]=$e;
-    return rc_post($GLOBALS['REDCAP_API_URL'],$p);
+    return rc_post($p);
 }
+
 function rc_import($rows){
-    return rc_post($GLOBALS['REDCAP_API_URL'],[
-        'token'=>$GLOBALS['REDCAP_API_TOKEN'],'content'=>'record','format'=>'json','type'=>'flat',
-        'overwriteBehavior'=>'normal','data'=>json_encode($rows),'returnContent'=>'ids','returnFormat'=>'json'
+    if(!$rows) return;
+    rc_post([
+        'token'=>$GLOBALS['REDCAP_API_TOKEN'],
+        'content'=>'record',
+        'format'=>'json',
+        'type'=>'flat',
+        'overwriteBehavior'=>'normal',
+        'data'=>json_encode($rows)
     ]);
 }
 
 /* ---------------------------------------------------------
- * Date helpers (API import must be Y-m-d)
+ * Date helpers
  * --------------------------------------------------------- */
-function parse_baseline_date_dmy($raw){
-    if(!$raw) return null; $raw=trim((string)$raw); if($raw==='') return null;
-    $norm=preg_replace('/[\/\.]/','-',$raw);
+function parse_baseline_date($raw){
+    if(!$raw) return null;
+    $raw=preg_replace('/[\/\.]/','-',trim((string)$raw));
     foreach(['!d-m-Y','!j-n-Y','!Y-m-d'] as $fmt){
-        $dt=DateTime::createFromFormat($fmt,$norm);
-        if($dt && $dt->format('Y')>=1900) return $dt;
+        $dt=DateTime::createFromFormat($fmt,$raw);
+        if($dt) return $dt;
     }
     return null;
-}
-function get_today_day_number($baselineRaw){
-    $base=parse_baseline_date_dmy($baselineRaw); if(!$base) return null;
-    $today=new DateTime('today'); $diff=(int)$base->diff($today)->format('%a'); return $diff+1;
 }
 
 /* ---------------------------------------------------------
@@ -97,82 +97,96 @@ function get_today_day_number($baselineRaw){
 logv("Exporting baseline rows (phone + date_baseline) …");
 $baseline = rc_export(['record_id',$FIELD_PHONE,$FIELD_BASELINE_DATE], [$BASELINE_EVENT]);
 
-$phoneMap=[]; $baselineDate=[];
+$baselineDate=[];
+$phoneMap=[];
+
 foreach($baseline as $r){
-    $rid=$r['record_id']??null; if(!$rid) continue;
+    $rid=$r['record_id']??null;
+    if(!$rid) continue;
     if(!empty($r[$FIELD_PHONE]))         $phoneMap[$rid]=$r[$FIELD_PHONE];
     if(!empty($r[$FIELD_BASELINE_DATE])) $baselineDate[$rid]=$r[$FIELD_BASELINE_DATE];
 }
+
 logv("Found ".count($phoneMap)." phones; ".count($baselineDate)." with baseline dates");
 
-/* Backfill date_baseline if empty (Y-m-d) */
-$baseSet=[];
-foreach ($phoneMap as $rid=>$phone){
-    if (empty($baselineDate[$rid])){
-        $todayYmd=date('Y-m-d');
-        $baseSet[]=['record_id'=>$rid,'redcap_event_name'=>$BASELINE_EVENT,$FIELD_BASELINE_DATE=>$todayYmd];
-        $baselineDate[$rid]=$todayYmd;
-        logv("Set date_baseline for record $rid → $todayYmd");
+/* ---------------------------------------------------------
+ * Export follow-up instances
+ * --------------------------------------------------------- */
+$followup = rc_export(
+    ['record_id',$FIELD_DAY_NUMBER,$FIELD_OPT_OUT,$FIELD_ASSESSMENT_DATE],
+    [$FOLLOWUP_EVENT]
+);
+
+// Build instances per record
+$byRecord=[];
+foreach($followup as $r){
+    if(($r['redcap_repeat_instrument']??'')!==$FOLLOWUP_REPEAT_INSTR) continue;
+    $rid=$r['record_id']??null;
+    $inst=(int)($r['redcap_repeat_instance']??0);
+    if($rid && $inst>=1){
+        $byRecord[$rid][$inst]=$r;
     }
 }
-if($baseSet){ $resp=rc_import($baseSet); logv('IMPORT-BASELINE resp: ' . json_encode($resp)); }
 
 /* ---------------------------------------------------------
- * Export follow-up rows (flat export auto-includes repeat meta)
- * --------------------------------------------------------- */
-$needFields = ['record_id', $FIELD_DAY_NUMBER, $FIELD_OPT_OUT, $FIELD_ASSESSMENT_DATE];
-$all = rc_export($needFields, [$FOLLOWUP_EVENT]);
-
-// Build existing instances per record
-$byRecord=[];
-foreach($all as $r){
-    if(($r['redcap_repeat_instrument']??'')!==$FOLLOWUP_REPEAT_INSTR) continue;
-    $rid=$r['record_id']??''; $inst=(int)($r['redcap_repeat_instance']??0);
-    if($inst>=1) $byRecord[$rid][$inst]=$r;
-}
-
-/* ---------------------------------------------------------
- * Compute tomorrow and create missing instance
+ * Create next instance per record
  * --------------------------------------------------------- */
 $create=[];
 $createdCount=0;
 
 foreach($phoneMap as $rid=>$phone){
-    if (empty($baselineDate[$rid])) continue;
-    $todayDay = get_today_day_number($baselineDate[$rid]); if(!$todayDay) continue;
-    $tomorrowDay = $todayDay + 1;
-    if ($tomorrowDay > $MAX_DAYS) continue;
 
-    // Stop if ANY instance is opted out
+    if(empty($baselineDate[$rid])) continue;
+
     $insts = $byRecord[$rid] ?? [];
-    $opted = false; foreach($insts as $i=>$row){ if(($row[$FIELD_OPT_OUT]??'')==='0'){ $opted=true; break; } }
-    if ($opted) continue;
 
-    // Already exists?
-    if (!empty($insts[$tomorrowDay])) { logv("Record $rid — Day $tomorrowDay already exists; skip"); continue; }
+    // Skip if opted out in ANY instance
+    $opted=false;
+    foreach($insts as $row){
+        if(($row[$FIELD_OPT_OUT]??'')==='0'){ $opted=true; break; }
+    }
+    if($opted) continue;
 
-    // date_assessment = baseline + (tomorrowDay-1) in Y-m-d
-    $baseDt = parse_baseline_date_dmy($baselineDate[$rid]) ?: new DateTime('today');
-    $dt = (clone $baseDt)->modify('+'.($tomorrowDay-1).' day');
+    // Determine next instance safely
+    if($insts){
+        $nextInst = max(array_keys($insts)) + 1;
+    } else {
+        $nextInst = 1;
+    }
+
+    if($nextInst > $MAX_DAYS) continue;
+
+    // Already exists (paranoia guard)
+    if(isset($insts[$nextInst])){
+        logv("Record $rid — instance $nextInst already exists; skip");
+        continue;
+    }
+
+    // Compute date_assessment = baseline + instance days
+    $baseDt = parse_baseline_date($baselineDate[$rid]);
+    if(!$baseDt) continue;
+
+    $dt = (clone $baseDt)->modify("+{$nextInst} day");
     $ymd = $dt->format('Y-m-d');
 
-    $create[] = [
-        'record_id'                => $rid,
-        'redcap_event_name'        => $FOLLOWUP_EVENT,
-        'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
-        'redcap_repeat_instance'   => $tomorrowDay,
-        $FIELD_DAY_NUMBER          => (string)$tomorrowDay,
-        $FIELD_ASSESSMENT_DATE     => $ymd
+    $create[]=[
+        'record_id'=>$rid,
+        'redcap_event_name'=>$FOLLOWUP_EVENT,
+        'redcap_repeat_instrument'=>$FOLLOWUP_REPEAT_INSTR,
+        'redcap_repeat_instance'=>$nextInst,
+        $FIELD_DAY_NUMBER=>(string)$nextInst,
+        $FIELD_ASSESSMENT_DATE=>$ymd
     ];
-    logv("Prepared record $rid — Day $tomorrowDay with $FIELD_ASSESSMENT_DATE=$ymd");
+
+    logv("Prepared record $rid — Day $nextInst with $FIELD_ASSESSMENT_DATE=$ymd");
     $createdCount++;
 }
 
-if ($create){
-    $resp=rc_import($create);
-    logv("Created $createdCount tomorrow instance(s); resp=" . json_encode($resp));
-    if ($VERBOSE) echo "<p><b>Created $createdCount tomorrow instance(s)</b></p>";
+if($create){
+    rc_import($create);
+    logv("Created $createdCount tomorrow instance(s)");
 } else {
     logv("No instances needed for tomorrow");
-    if ($VERBOSE) echo "<p><b>No instances needed for tomorrow.</b></p>";
 }
+
+if($VERBOSE) echo "<p><b>Created $createdCount instance(s)</b></p>";
