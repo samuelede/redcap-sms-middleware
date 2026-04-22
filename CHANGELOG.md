@@ -1,4 +1,21 @@
-﻿## v0.6.0 (2026-04-22)
+﻿## v0.6.1 (2026-04-23)
+### Fixed
+- Prevented baseline question `q1a` (text sourced from `q1aa`) from being re-sent on follow-up days beyond Day 1.
+- Corrected outbound progression so baseline-only questions are auto-skipped for advancement on Day > 1 and do not block subsequent questions.
+- Fixed reminder logic so reminders are sent based on the last **sent unanswered question**, rather than the next candidate question when that candidate is suppressed.
+- Ensured reminders are sent for all questions that were actually delivered (including `q1a` on Day 1) when no response is received within the configured reminder interval.
+- Prevented reminders for baseline-only questions (`q1a`) from firing on Day 2+.
+- Eliminated instance drift issues caused by calendar-based logic, ensuring outbound, inbound, and scheduler logic consistently operate on the correct follow-up instance.
+
+### Changed
+- Clarified outbound semantics between **progression logic** and **reminder logic**, making them independent but consistent.
+- Reinforced the rule that baseline questions are day-scoped (Day 1 only), while reminders apply only to questions that were actually sent.
+
+### Operational Notes
+- These fixes do not retroactively alter previously created instances or sent messages.
+- All changes are backward-compatible and apply to new outbound runs.
+
+## v0.6.0 (2026-04-22)
 ### Added
 - Automatic completion of follow-up repeating instrument when all daily answer fields are populated.
 - Support for treating response code `666` as a valid “answered” state for progression and completion.
