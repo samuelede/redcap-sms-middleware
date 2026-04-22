@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
+
+  <!-- ===================================================== -->
+  <!-- Global IIS rules -->
+  <!-- ===================================================== -->
   <system.webServer>
 
-    <!-- Block direct browser access to internal scripts -->
+    <!-- Block direct browser / HTTP access to internal scripts -->
     <security>
       <requestFiltering>
         <denyUrlSequences>
@@ -14,6 +18,46 @@
       </requestFiltering>
     </security>
 
-    <!-- POST-only enforcement happens inside PHP -->
   </system.webServer>
+
+  <!-- ===================================================== -->
+  <!-- SMS Works delivery report webhook hardening -->
+  <!-- ===================================================== -->
+  <location path="api/dlr_smsworks.php">
+    <system.webServer>
+      <security>
+
+        <!-- IP safelist -->
+        <ipSecurity allowUnlisted="false">
+          <add ipAddress="18.170.59.20" allowed="true" />
+          <add ipAddress="35.176.98.85" allowed="true" />
+          <add ipAddress="52.56.112.179" allowed="true" />
+        </ipSecurity>
+
+        <!-- POST only -->
+        <requestFiltering>
+          <verbs allowUnlisted="false">
+            <add verb="POST" allowed="true" />
+          </verbs>
+        </requestFiltering>
+
+      </security>
+    </system.webServer>
+  </location>
+
+  <!-- ===================================================== -->
+  <!-- Allow trigger_outbound.php over HTTP (POST + secret) -->
+  <!-- ===================================================== -->
+  <location path="api/trigger_outbound.php">
+    <system.webServer>
+      <security>
+        <requestFiltering>
+          <verbs allowUnlisted="false">
+            <add verb="POST" allowed="true" />
+          </verbs>
+        </requestFiltering>
+      </security>
+    </system.webServer>
+  </location>
+
 </configuration>
