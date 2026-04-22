@@ -264,10 +264,27 @@ try {
     }
 
     /* ---------- Find earliest unanswered question ---------- */
+    // ------------------------------------------------------------
+    // Export answers + provider-id fields so inbound can verify
+    // that a question was actually sent
+    // ------------------------------------------------------------
+    $fields = ['record_id'];
+
+    foreach ($SEQUENCE as $s) {
+        // answer field
+        $fields[] = $s['a'];
+
+        // provider-id field (if defined)
+        $q = $s['q'];
+        if (!empty($SMSW_FIELD_MAP[$q]['prov'])) {
+            $fields[] = $SMSW_FIELD_MAP[$q]['prov'];
+        }
+    }
+
     $rows = redcap_export_records(
         $REDCAP_API_TOKEN,
         $REDCAP_API_URL,
-        array_merge(['record_id'], array_column($SEQUENCE, 'a')),
+        $fields,
         [$FOLLOWUP_EVENT]
     );
 
@@ -317,22 +334,53 @@ try {
         http_response_code(200); echo "OK"; exit;
     }
 
-    /* ---------- ANSWERS (1–10 or 666) ---------- */
+    /* ---------- ANSWERS (1–10 or 666; only if question was sent) ---------- */
     if ($text === SPECIAL_SKIP_CODE || $score !== null) {
 
-        if ($answerField) {
-            $row = $base;
-            $row[$answerField] = ($text === SPECIAL_SKIP_CODE ? '666' : (string)$score);
-            redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, [$row]);
-
-            inlog("ANSWER record={$rid} day={$day} {$answerField}={$row[$answerField]}");
+        if (!$answerField) {
+            inlog("ANSWER ignored: no unanswered question for record {$rid} day {$day}");
+            http_response_code(200);
+            echo "OK";
+            exit;
         }
+
+        // Determine question code for this answer field
+        $qCode = null;
+        foreach ($SEQUENCE as $s) {
+            if ($s['a'] === $answerField) {
+                $qCode = $s['q'];
+                break;
+            }
+        }
+
+        // Provider-id field proves the question was sent
+        $provField = $qCode ? ($SMSW_FIELD_MAP[$qCode]['prov'] ?? null) : null;
+        $provVal   = $provField ? trim((string)($row[$provField] ?? '')) : '';
+
+        // [X] Do NOT accept replies for questions that were never sent
+        if ($provVal === '') {
+            inlog("ANSWER ignored: {$qCode} not sent yet (record {$rid} day {$day})");
+            http_response_code(200);
+            echo "OK";
+            exit;
+        }
+
+        // ✅ Safe to record answer
+        $row = $base;
+        $row[$answerField] = ($text === SPECIAL_SKIP_CODE ? '666' : (string)$score);
+
+        redcap_import_records(
+            $REDCAP_API_TOKEN,
+            $REDCAP_API_URL,
+            [$row]
+        );
+
+        inlog("ANSWER recorded record={$rid} day={$day} {$answerField}={$row[$answerField]}");
 
         /* ============================================================
         * MARK FOLLOW-UP INSTRUMENT COMPLETE
         * (666 counts as answered)
         * ============================================================ */
-
         $requiredAnswers = [
             'q1a_answer','q1b_answer',
             'q2a_answer','q2b_answer',
