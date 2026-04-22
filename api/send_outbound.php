@@ -88,7 +88,7 @@ $HEAL_START     = cfg_int('AUTO_HEAL_WINDOW_START_HOUR', 7);
 $HEAL_END       = cfg_int('AUTO_HEAL_WINDOW_END_HOUR',   20);
 
 $REM_ENABLED    = cfg_bool('REMINDER_ENABLED', true);
-$REM_SECS       = cfg_int('REMINDER_SECONDS', 3600); //define('REMINDER_SECONDS', 3 * 24 * 3600); in live env
+$REM_SECS       = cfg_int('REMINDER_SECONDS', 3 * 3600); //3 hours in dev: define('REMINDER_SECONDS', 3 * 24 * 3600); 3 days in live env
 $REM_MAX        = cfg_int('REMINDER_SENT_MAX', 1);
 $REM_W_START    = defined('REMINDER_WINDOW_START_HOUR') ? constant('REMINDER_WINDOW_START_HOUR') : null;
 $REM_W_END      = defined('REMINDER_WINDOW_END_HOUR')   ? constant('REMINDER_WINDOW_END_HOUR')   : null;
@@ -867,26 +867,89 @@ foreach($byRecord as $rid=>$insts){
             continue;
         }
 
+        // ------------------------------------------------------------
+        // Determine reminder candidate BEFORE q1a skip logic
+        // ------------------------------------------------------------
+        $reminderQ = $nextQ;
+
+        // q1a reminders only allowed on Day 1
+        if ($reminderQ === 'q1a' && (int)$inst !== 1) {
+            $reminderQ = null;
+        }
+
+        // ------------------------------------------------------------
+        // q1a must be skipped entirely for instances > 1
+        // (baseline question only applies to Day 1)
+        // ------------------------------------------------------------
+        if ($nextQ === 'q1a' && (int)$inst !== 1) {
+            logv("Record {$rid} Day {$inst}: q1a auto-skipped for progression (baseline-only question)");
+            $MET_skipped++;
+            continue;
+        }
+
         logv("SEND-LOOP CHECK: record={$rid} inst={$inst} nextQ={$nextQ} qText=" .
      (trim((string)($row[$nextQ] ?? '')) === '' ? 'EMPTY' : 'OK'));
 
         /* ---------- REMINDER: only within window & age threshold ---------- */
+        /* ---------- REMINDER: only within window & age threshold ---------- */
         if ($REM_ENABLED && allow_reminder_window($REM_W_START,$REM_W_END)) {
-            $provFieldNext=$SMSW_FIELD_MAP[$nextQ]['prov']??null;
-            $answerFieldNext=null; foreach($SEQUENCE as $s){ if($s['q']===$nextQ){ $answerFieldNext=$s['a']; break; } }
-            $ansVal = trim((string)($row[$answerFieldNext] ?? ''));
-            $provVal= $provFieldNext ? trim((string)($row[$provFieldNext] ?? '')) : '';
 
-            if ($ansVal==='' && $provVal!=='') {
-                if (empty($qState[(string)$rid][(string)$inst][$nextQ]['first_sent_ts'])) {
-                    q_state_mark_sent($qState,$rid,$inst,$nextQ);
-                } else if (q_state_can_remind($qState,$rid,$inst,$nextQ,$REM_SECS,$REM_MAX)) {
-                    $qText=trim((string)($row[$nextQ]??''));
-                    if ($qText!=='') {
-                        list($prov,$st)=send_and_record($nextQ,$rid,$inst,$to,$qText,true /* aux reminder */);
-                        $MET_sent++; $reminderSentCount++;
-                        logv("REMINDER sent for record {$rid} Day {$inst} {$nextQ} — msgid={$prov}");
-                        q_state_mark_reminded($qState,$rid,$inst,$nextQ);
+            /*
+            * Reminder candidate is the last SENT unanswered question,
+            * not blindly $nextQ if $nextQ is suppressed for progression.
+            */
+            $reminderQ = $nextQ;
+
+            // q1a reminders only allowed on Day 1
+            if ($reminderQ === 'q1a' && (int)$inst !== 1) {
+                $reminderQ = null;
+            }
+
+            if ($reminderQ) {
+
+                $provField = $SMSW_FIELD_MAP[$reminderQ]['prov'] ?? null;
+
+                $answerField = null;
+                foreach ($SEQUENCE as $s) {
+                    if ($s['q'] === $reminderQ) {
+                        $answerField = $s['a'];
+                        break;
+                    }
+                }
+
+                $ansVal  = $answerField ? trim((string)($row[$answerField] ?? '')) : '';
+                $provVal = $provField ? trim((string)($row[$provField] ?? '')) : '';
+
+                // Only remind if unanswered AND was actually sent
+                if ($ansVal === '' && $provVal !== '') {
+
+                    // First time seen → record sent timestamp
+                    if (empty($qState[(string)$rid][(string)$inst][$reminderQ]['first_sent_ts'])) {
+
+                        q_state_mark_sent($qState, $rid, $inst, $reminderQ);
+
+                    } elseif (q_state_can_remind($qState, $rid, $inst, $reminderQ, $REM_SECS, $REM_MAX)) {
+
+                        $qText = trim((string)($row[$reminderQ] ?? ''));
+
+                        if ($qText !== '') {
+
+                            list($prov,$st) = send_and_record(
+                                $reminderQ,
+                                $rid,
+                                $inst,
+                                $to,
+                                $qText,
+                                true // aux reminder
+                            );
+
+                            $MET_sent++;
+                            $reminderSentCount++;
+
+                            logv("REMINDER sent for record {$rid} Day {$inst} {$reminderQ} — msgid={$prov}");
+
+                            q_state_mark_reminded($qState, $rid, $inst, $reminderQ);
+                        }
                     }
                 }
             }
