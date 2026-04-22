@@ -17,6 +17,20 @@ date_default_timezone_set($TIMEZONE);
 $REDCAP_API_URL   = REDCAP_API_URL;
 $REDCAP_API_TOKEN = REDCAP_API_TOKEN_SECRET;
 
+// ------------------------------------------------------------
+// Outbound trigger configuration
+// ------------------------------------------------------------
+
+// Shared secret used by trigger_outbound.php
+define('OUTBOUND_TRIGGER_SECRET', 'a0fa68fd744017947c645351287ad97619ef6d1a425a5e0efac8f05735bca553');
+
+// Base URL where trigger_outbound.php is reachable
+// Examples:
+//   Local dev: http://localhost:8080
+//   Ngrok:     https://xxxx.ngrok-free.dev
+//   Prod:      https://sms.yourdomain.co.uk
+define('BASE_URL', 'http://localhost:8080');
+
 /* ------------------------------------------------------------
  * Provider
  * ------------------------------------------------------------ */

@@ -375,6 +375,22 @@ try {
             [$row]
         );
 
+        // ------------------------------------------------------------
+        // Trigger outbound via HTTP trigger (minimal & safe)
+        // ------------------------------------------------------------
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $BASE_URL . '/api/trigger_outbound.php',
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 2,
+            CURLOPT_POSTFIELDS     => http_build_query([
+                'secret' => OUTBOUND_TRIGGER_SECRET
+            ]),
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
+
         inlog("ANSWER recorded record={$rid} day={$day} {$answerField}={$row[$answerField]}");
 
         /* ============================================================
