@@ -910,7 +910,9 @@ foreach($byRecord as $rid=>$insts){
 
             // Only allow q1a for first instance
             if ($inst !== 1) {
-                $MET_skipped++; continue;
+                logv("Record {$rid} Day {$inst}: q1a suppressed (baseline question only allowed on Day 1)");
+                $MET_skipped++;
+                continue;
             }
 
             // Get q1a text from BASELINE event (q1aa)
