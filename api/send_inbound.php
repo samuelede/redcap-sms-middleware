@@ -215,11 +215,52 @@ try {
         http_response_code(200); echo "OK"; exit;
     }
 
-    /* ---------- Day ---------- */
-    $day = get_today_day_number_from_baseline($baselineDate);
+    /* ---------- Determine active follow-up instance ---------- */
+    /*
+    * Rule:
+    * - If a previous follow-up instance is incomplete, always write replies there
+    * - Only advance to a new instance once the previous one is marked complete
+    */
+
+    // Export follow-up instances with completion status
+    $followupRows = redcap_export_records(
+        $REDCAP_API_TOKEN,
+        $REDCAP_API_URL,
+        [
+            'record_id',
+            $FOLLOWUP_REPEAT_INSTR . '_complete'
+        ],
+        [$FOLLOWUP_EVENT]
+    );
+
+    $day = null;
+
+    // Find first incomplete instance
+    foreach ($followupRows as $r) {
+        if ((int)$r['record_id'] !== $rid) continue;
+
+        $inst = (int)($r['redcap_repeat_instance'] ?? 0);
+        if ($inst < 1) continue;
+
+        $complete = trim((string)($r[$FOLLOWUP_REPEAT_INSTR . '_complete'] ?? '0'));
+
+        if ($complete !== '2') {
+            $day = $inst;
+            break;
+        }
+    }
+
+    // If all previous instances are complete, fall back to calendar day
     if ($day === null) {
-        inlog("ABORT: cannot compute day");
-        http_response_code(200); echo "OK"; exit;
+        $day = get_today_day_number_from_baseline($baselineDate);
+    }
+
+    // Safety check
+    if ($day === null) {
+        inlog("ABORT: cannot determine active follow-up instance");
+        http_response_code(200);
+        echo "OK";
+        exit;
     }
 
     /* ---------- Find earliest unanswered question ---------- */
