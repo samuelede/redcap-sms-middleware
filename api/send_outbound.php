@@ -88,7 +88,7 @@ $HEAL_START     = cfg_int('AUTO_HEAL_WINDOW_START_HOUR', 7);
 $HEAL_END       = cfg_int('AUTO_HEAL_WINDOW_END_HOUR',   20);
 
 $REM_ENABLED    = cfg_bool('REMINDER_ENABLED', true);
-$REM_SECS       = cfg_int('REMINDER_SECONDS', 3 * 3600); //3 hours in dev: define('REMINDER_SECONDS', 3 * 24 * 3600); 3 days in live env
+$REM_SECS       = cfg_int('REMINDER_SECONDS', 3*3600); //3 hours in dev: define('REMINDER_SECONDS', 3 * 24 * 3600); 3 days in live env
 $REM_MAX        = cfg_int('REMINDER_SENT_MAX', 1);
 $REM_W_START    = defined('REMINDER_WINDOW_START_HOUR') ? constant('REMINDER_WINDOW_START_HOUR') : null;
 $REM_W_END      = defined('REMINDER_WINDOW_END_HOUR')   ? constant('REMINDER_WINDOW_END_HOUR')   : null;
@@ -888,9 +888,8 @@ foreach($byRecord as $rid=>$insts){
         }
 
         logv("SEND-LOOP CHECK: record={$rid} inst={$inst} nextQ={$nextQ} qText=" .
-     (trim((string)($row[$nextQ] ?? '')) === '' ? 'EMPTY' : 'OK'));
+        (trim((string)($row[$nextQ] ?? '')) === '' ? 'EMPTY' : 'OK'));
 
-        /* ---------- REMINDER: only within window & age threshold ---------- */
         /* ---------- REMINDER: only within window & age threshold ---------- */
         if ($REM_ENABLED && allow_reminder_window($REM_W_START,$REM_W_END)) {
 

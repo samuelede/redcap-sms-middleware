@@ -21,7 +21,12 @@ if ($provided !== OUTBOUND_TRIGGER_SECRET) {
 }
 
 // Call outbound via CLI-style execution
-// (avoids require/include side effects)
+// ------------------------------------------------------------
+// Mark this run as triggered by an inbound reply
+// ------------------------------------------------------------
+putenv('OUTBOUND_TRIGGERED=1');
+
+// Run outbound via CLI-style execution
 passthru(PHP_BINARY . ' ' . escapeshellarg(__DIR__ . '/send_outbound.php'));
 
 http_response_code(200);
