@@ -1,4 +1,31 @@
-﻿## v0.6.1 (2026-04-23)
+﻿## v0.6.2 (2026-04-24)
+### Added
+- Introduced a secure outbound trigger (`trigger_outbound.php`) to invoke outbound processing immediately after inbound replies, decoupling user progression from cron timing.
+- Added shared-secret authentication for outbound triggering to prevent unauthorised execution.
+- Enabled inbound replies to initiate outbound evaluation within seconds, without requiring direct HTTP access to `send_outbound.php`.
+
+### Changed
+- Clarified and enforced responsibility boundaries:
+- Inbound handles data capture and triggers outbound evaluation.
+- Outbound retains full authority over eligibility and sequencing decisions.
+- Preserved existing AUTO-HEAL and send-window behaviour for day-entry questions (`q1a`), while allowing non–day-entry questions to progress outside the send window when eligible.
+- Hardened production configuration by blocking direct HTTP access to outbound and scheduler scripts, while permitting controlled triggering via a dedicated endpoint.
+
+### Fixed
+- Prevented premature population of follow-up answer fields when corresponding questions were not yet sent.
+- Ensured inbound reply handling only records answers for questions that have actually been delivered (validated via provider message IDs).
+- Eliminated dependency on cron frequency for outbound execution when immediate progression is possible.
+
+### Behavioural Notes
+- Immediate outbound triggering does not guarantee an SMS is sent; outbound logic may correctly decide that no eligible next question exists at that moment.
+- Cron remains responsible for periodic re-evaluation and sending when eligibility conditions change.
+- Day-entry questions (`q1a`) continue to respect defined send windows and are never sent overnight.
+
+### Security
+- Restricted outbound execution to CLI and authenticated internal triggers only.
+- Maintained IP safelisting and POST-only enforcement for SMS Works delivery-report webhooks.
+
+## v0.6.1 (2026-04-23)
 ### Fixed
 - Prevented baseline question `q1a` (text sourced from `q1aa`) from being re-sent on follow-up days beyond Day 1.
 - Corrected outbound progression so baseline-only questions are auto-skipped for advancement on Day > 1 and do not block subsequent questions.
@@ -14,6 +41,9 @@
 ### Operational Notes
 - These fixes do not retroactively alter previously created instances or sent messages.
 - All changes are backward-compatible and apply to new outbound runs.
+
+### Security
+- Hardened production delivery-report webhook by restricting access to The SMS Works’ verified IP safelist at the IIS level.
 
 ## v0.6.0 (2026-04-22)
 ### Added
