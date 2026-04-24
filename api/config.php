@@ -58,6 +58,20 @@ $FIELD_ASSESSMENT_DATE = 'date_assessment';
 $FIELD_DAY_NUMBER      = 'fup_day_number';
 $FIELD_OPT_OUT         = 'sms_opt_out';
 
+// ------------------------------------------------------------
+// Follow-up Day question templates
+// ------------------------------------------------------------
+
+// Template for q1a (first question of each follow-up day)
+// Available placeholders:
+//   {record_id} → REDCap record_id
+//   {day}       → follow-up day / instance number
+define(
+    'Q1A_TEXT_TEMPLATE',
+    "CoSMART RID:{record_id} - Day {day}:q1a\n" .
+    "How would you rate from 1-10 how you/your child was able to perform ride bicycle today?"
+);
+
 /* ------------------------------------------------------------
  * Question sequence
  * ------------------------------------------------------------ */
