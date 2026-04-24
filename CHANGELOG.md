@@ -1,4 +1,32 @@
-﻿## v0.6.2 (2026-04-24)
+﻿## v0.6.3 (2026-04-25)
+
+### Changed
+- Moved responsibility for populating the first daily follow‑up question (`q1a`) from outbound logic to the scheduler, making instance creation the single source of truth for question text.
+- Introduced a configurable template for daily `q1a` SMS text, allowing message structure changes without code modifications.
+- Updated outbound processing so `q1a` is treated as a normal per‑day follow‑up question, rather than a baseline‑only special case.
+- Enforced a time‑of‑day guard for `q1a` delivery in outbound processing, ensuring the first daily question is not sent before the configured start hour.
+
+### Fixed
+- Fixed an issue where follow‑up instances had empty `q1a` text due to reliance on REDCap `@SETVALUE`, which does not run for API‑created repeating instruments.
+- Prevented follow‑up days from being skipped when `q1a` text was missing or incorrectly treated as baseline‑only.
+- Eliminated premature sending of the first daily question outside the allowed time window after scheduler runs.
+
+### Removed
+- Removed baseline‑only `q1a` handling and special‑case send logic from outbound processing.
+- Deprecated reliance on baseline `q1aa` text for follow‑up SMS delivery.
+- Removed AUTO‑HEAL logic from outbound in favour of scheduler‑based data preparation and backfilling.
+
+### Behavioural Notes
+- The scheduler now ensures all follow‑up instances have complete question text before outbound evaluation.
+- Outbound processing only sends messages when both eligibility and time‑of‑day conditions are met; cron automatically sends the first daily question once the time guard is satisfied.
+- Non‑`q1a` follow‑up questions continue to progress immediately after valid replies, independent of time‑of‑day restrictions.
+
+### Architecture
+- Clarified separation of responsibilities:
+  - Scheduler: instance creation and data correctness.
+  - Outbound: delivery policy, sequencing, reminders, and opt‑out handling.
+
+## v0.6.2 (2026-04-24)
 ### Added
 - Introduced a secure outbound trigger (`trigger_outbound.php`) to invoke outbound processing immediately after inbound replies, decoupling user progression from cron timing.
 - Added shared-secret authentication for outbound triggering to prevent unauthorised execution.
@@ -6,8 +34,8 @@
 
 ### Changed
 - Clarified and enforced responsibility boundaries:
-- Inbound handles data capture and triggers outbound evaluation.
-- Outbound retains full authority over eligibility and sequencing decisions.
+  - Inbound handles data capture and triggers outbound evaluation.
+  - Outbound retains full authority over eligibility and sequencing decisions.
 - Preserved existing AUTO-HEAL and send-window behaviour for day-entry questions (`q1a`), while allowing non–day-entry questions to progress outside the send window when eligible.
 - Hardened production configuration by blocking direct HTTP access to outbound and scheduler scripts, while permitting controlled triggering via a dedicated endpoint.
 
@@ -59,8 +87,8 @@
 
 ### Changed
 - Clarified responsibility boundaries:
-- Inbound: validate and record responses only.
-- Outbound: owns sequencing, timing, and message sending.
+  - Inbound: validate and record responses only.
+  - Outbound: owns sequencing, timing, and message sending.
 - Removed inbound dependency on outbound provider IDs and sent-state.
 
 ## v0.5.6 (2026-04-21)
@@ -78,8 +106,8 @@
 
 ## v0.5.4 (2026-04-20)
 - Add environment-specific IIS configuration templates:
-- web.config.dev for development/debug access
-- web.config.prod for production hardening
+  - web.config.dev for development/debug access
+  - web.config.prod for production hardening
 - Document deployment workflow using template-based web.config replacement
 - Prevent accidental commit of active web.config
 
