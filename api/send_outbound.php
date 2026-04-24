@@ -578,13 +578,14 @@ foreach($baselineDate as $rid=>$baseRaw){
         ->modify('+1 day');
 
         $d1Ymd = fmt_import_ymd($d1);
-        $createRows[]=[
+        $createRows[] = [
             'record_id'                => $rid,
             'redcap_event_name'        => $FOLLOWUP_EVENT,
             'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
             'redcap_repeat_instance'   => 1,
             $FIELD_DAY_NUMBER          => '1',
-            $FIELD_ASSESSMENT_DATE     => $d1Ymd
+            $FIELD_ASSESSMENT_DATE     => $d1Ymd,
+            'q1a'                      => build_q1a_text($rid, 1)
         ];
         logv("Prepared Day 1 for record {$rid} — {$FIELD_ASSESSMENT_DATE}={$d1Ymd}");
     }
@@ -635,13 +636,14 @@ foreach($byRecord as $rid=>$insts){
         $dtClone = (clone $baseDt)->modify("+{$i} day");
         $ymd = fmt_import_ymd($dtClone);
 
-        $createNext[]=[
+        $createNext[] = [
             'record_id'                => $rid,
             'redcap_event_name'        => $FOLLOWUP_EVENT,
             'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
             'redcap_repeat_instance'   => $i,
             $FIELD_DAY_NUMBER          => (string)$i,
-            $FIELD_ASSESSMENT_DATE     => $ymd
+            $FIELD_ASSESSMENT_DATE     => $ymd,
+            'q1a'                      => build_q1a_text($rid, $i)
         ];
         logv("Prepared Day {$i} for record {$rid} — {$FIELD_ASSESSMENT_DATE}={$ymd}");
     }
@@ -719,65 +721,6 @@ $AH_skipped_optout = 0;
 $AH_missing_today = 0;
 $AH_not_needed = 0;
 
-// **AUTO‑HEAL WINDOW CHECK (q1a)**
-logv("=====================================================");
-logv("**AUTO‑HEAL CHECK FOR q1a** — evaluating records: " . implode(', ', array_keys($phoneMap)));
-logv("-----------------------------------------------------------------------------------------");
-
-foreach ($byRecord as $rid => $insts) {
-    if (empty($baselineDate[$rid]) || empty($phoneMap[$rid])) continue;
-
-    $todayDay = get_today_day_number($baselineDate[$rid]);
-
-    // ------------------------------------------------------------
-    // BASELINE DAY GUARD — never send SMS on Day 0
-    // ------------------------------------------------------------
-    if ($todayDay === 0) {
-        logv("Record {$rid}: baseline Day 0 — no SMS sent");
-        continue;
-    }
-
-    if ($todayDay > $MAX_DAYS) {
-        continue; // silently ignore records beyond study window
-    }
-
-    $AH_checked++;
-
-    if (!isset($insts[$todayDay])) {
-        $AH_missing_today++;
-        logv("AUTO-HEAL: Record {$rid} — today's instance (Day {$todayDay}) missing.");
-        continue;
-    }
-
-    $row = $insts[$todayDay];
-
-    if (($row[$FIELD_OPT_OUT] ?? '') === '0') {
-        $AH_skipped_optout++;
-        continue;
-    }
-
-    $q1aText = trim((string)($baselineQ1aa[$rid] ?? ''));
-    $q1aAns  = trim((string)($row['q1a_answer'] ?? ''));
-    $provFieldQ1a = $SMSW_FIELD_MAP['q1a']['prov'] ?? null;
-    $alreadyProv  = $provFieldQ1a ? trim((string)($row[$provFieldQ1a] ?? '')) : '';
-
-    $needsQ1a = ($q1aText !== '' && $q1aAns === '' && $alreadyProv === '');
-    if (!$needsQ1a) { $AH_not_needed++; continue; }
-
-    if (!allow_auto_heal_now_global($HEAL_START,$HEAL_END)) { $AH_deferred++; logv("AUTO-HEAL: Record {$rid} Day {$todayDay} — outside window {$HEAL_START}:00–{$HEAL_END}:59"); continue; }
-    if (!allow_q1a_now_global($Q1A_HOUR))                 { $AH_deferred++; logv("AUTO-HEAL: Record {$rid} Day {$todayDay} — before {$Q1A_HOUR}:00"); continue; }
-
-    $to = $phoneMap[$rid];
-    try {
-        list($prov,$status) = send_and_record('q1a', $rid, $todayDay, $to, $q1aText, false);
-        $MET_sent++; $AH_sent++;
-        logv("AUTO‑HEAL: q1a sent for record {$rid} (Day {$todayDay}) — msgid={$prov}, status={$status}");
-    } catch (Exception $e) {
-        $AH_deferred++;
-        logv("AUTO‑HEAL: ERROR sending q1a for record {$rid} — ".$e->getMessage());
-    }
-}
-error_log("STEP 2: AUTO-HEAL completed");
 /* ------------------------------------------------------------
  * Reminder & HELP states
  * ------------------------------------------------------------ */
@@ -877,16 +820,6 @@ foreach($byRecord as $rid=>$insts){
             $reminderQ = null;
         }
 
-        // ------------------------------------------------------------
-        // q1a must be skipped entirely for instances > 1
-        // (baseline question only applies to Day 1)
-        // ------------------------------------------------------------
-        if ($nextQ === 'q1a' && (int)$inst !== 1) {
-            logv("Record {$rid} Day {$inst}: q1a auto-skipped for progression (baseline-only question)");
-            $MET_skipped++;
-            continue;
-        }
-
         logv("SEND-LOOP CHECK: record={$rid} inst={$inst} nextQ={$nextQ} qText=" .
         (trim((string)($row[$nextQ] ?? '')) === '' ? 'EMPTY' : 'OK'));
 
@@ -954,56 +887,6 @@ foreach($byRecord as $rid=>$insts){
             }
         }
 
-        /* ---------- q1a: baseline kick-off + preference gate ---------- */
-        if ($nextQ === 'q1a') {
-
-            // Phone must exist
-            if (empty($to)) {
-                $MET_skipped++; continue;
-            }
-
-            // Completion preference must be explicitly opted-in (baseline event)
-            $cp = $baselineComplPref[$rid] ?? null;
-
-            // Accept numeric 1 or string '1'
-            if (!in_array((string)$cp, ['1'], true)) {
-                $MET_skipped++; continue;
-            }
-
-            // Only allow q1a for first instance
-            if ($inst !== 1) {
-                logv("Record {$rid} Day {$inst}: q1a suppressed (baseline question only allowed on Day 1)");
-                $MET_skipped++;
-                continue;
-            }
-
-            // Get q1a text from BASELINE event (q1aa)
-            $q1aText = trim((string)($baselineQ1aa[$rid] ?? ''));
-
-            $q1aAnswer = trim((string)($row['q1a_answer'] ?? ''));
-            $provFieldQ1a = $SMSW_FIELD_MAP['q1a']['prov'] ?? null;
-            $alreadyProv  = $provFieldQ1a ? trim((string)($row[$provFieldQ1a] ?? '')) : '';
-
-            // Eligibility checks
-            if ($q1aText === '' || $q1aAnswer !== '' || $alreadyProv !== '') {
-                $MET_skipped++; continue;
-            }
-
-            // Time guard
-            if (!allow_q1a_now_global($Q1A_HOUR)) {
-                $MET_skipped++; continue;
-            }
-
-            // Send q1a
-            list($prov,$st) = send_and_record('q1a', $rid, $inst, $to, $q1aText, false);
-            $MET_sent++; 
-            q_state_mark_sent($qState, $rid, $inst, 'q1a');
-
-            echo "✔ Sent q1a for record {$rid} (Day {$inst}) — msgid={$prov}<br>";
-            $sentCount++;
-            $MET_skipped++; continue;
-        }
-
         /* ---------- q1b..q5b strict gate ---------- */
         $prevAnsField = $PREV_ANSWER[$nextQ] ?? null;
         if($prevAnsField){
@@ -1021,6 +904,15 @@ foreach($byRecord as $rid=>$insts){
         if($qText===''){
             logv("Record {$rid} Day {$inst}: {$nextQ} text blank; skipping");
             $MET_skipped++; continue;
+        }
+
+        // ------------------------------------------------------------
+        // Time guard for q1a (first question of the day)
+        // ------------------------------------------------------------
+        if ($nextQ === 'q1a' && !allow_q1a_now_global($Q1A_HOUR)) {
+            logv("Record {$rid} Day {$inst}: q1a blocked by time guard (before {$Q1A_HOUR}:00)");
+            $MET_skipped++;
+            continue;
         }
 
         $provFieldNext=$SMSW_FIELD_MAP[$nextQ]['prov']??null;
