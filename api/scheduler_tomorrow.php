@@ -12,6 +12,52 @@
 require_once __DIR__ . '/config.php';
 date_default_timezone_set($TIMEZONE);
 
+function build_q1a_text($rid, $day) {
+    return str_replace(
+        ['{record_id}', '{day}'],
+        [$rid, $day],
+        Q1A_TEXT_TEMPLATE
+    );
+}
+
+/* ------------------------------------------------------------
+ * REDCap API helpers (local to scheduler)
+ * ------------------------------------------------------------ */
+function redcap_post($url, $data){
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $url,
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_POSTFIELDS     => $data
+    ]);
+    $out  = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
+    curl_close($ch);
+
+    if ($code !== 200) {
+        throw new RuntimeException("REDCap API error ($code): $out :: $err");
+    }
+
+    $json = json_decode($out, true);
+    return $json ?? $out;
+}
+
+function redcap_import_records($token, $url, $records){
+    return redcap_post($url, [
+        'token'             => $token,
+        'content'           => 'record',
+        'format'            => 'json',
+        'type'              => 'flat',
+        'overwriteBehavior' => 'normal',
+        'data'              => json_encode($records),
+        'returnContent'     => 'ids',
+        'returnFormat'      => 'json'
+    ]);
+}
+
 /* ---------------------------------------------------------
  * Logging
  * --------------------------------------------------------- */
@@ -169,13 +215,27 @@ foreach($phoneMap as $rid=>$phone){
     $dt = (clone $baseDt)->modify("+{$nextInst} day");
     $ymd = $dt->format('Y-m-d');
 
-    $create[]=[
-        'record_id'=>$rid,
-        'redcap_event_name'=>$FOLLOWUP_EVENT,
-        'redcap_repeat_instrument'=>$FOLLOWUP_REPEAT_INSTR,
-        'redcap_repeat_instance'=>$nextInst,
-        $FIELD_DAY_NUMBER=>(string)$nextInst,
-        $FIELD_ASSESSMENT_DATE=>$ymd
+    // ------------------------------------------------------------
+    // Populate q1a text for this follow-up instance
+    // ------------------------------------------------------------
+    $q1aText = str_replace(
+        ['{record_id}', '{day}'],
+        [$rid, $nextInst],
+        Q1A_TEXT_TEMPLATE
+    );
+
+    $create[] = [
+        'record_id'                => $rid,
+        'redcap_event_name'        => $FOLLOWUP_EVENT,
+        'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
+        'redcap_repeat_instance'   => $nextInst,
+
+        // Day metadata
+        $FIELD_DAY_NUMBER          => (string)$nextInst,
+        $FIELD_ASSESSMENT_DATE     => $ymd,
+
+        // ✅ Explicitly populate q1a text for every day
+        'q1a'                      => $q1aText
     ];
 
     logv("Prepared record $rid — Day $nextInst with $FIELD_ASSESSMENT_DATE=$ymd");
@@ -190,3 +250,29 @@ if($create){
 }
 
 if($VERBOSE) echo "<p><b>Created $createdCount instance(s)</b></p>";
+
+// ------------------------------------------------------------
+// AUTO‑HEAL: backfill q1a text for existing instances if missing
+// ------------------------------------------------------------
+$healRows = [];
+
+foreach ($byRecord as $rid => $insts) {
+    foreach ($insts as $inst => $row) {
+        $current = trim((string)($row['q1a'] ?? ''));
+        if ($current === '') {
+            $healRows[] = [
+                'record_id'                => $rid,
+                'redcap_event_name'        => $FOLLOWUP_EVENT,
+                'redcap_repeat_instrument' => $FOLLOWUP_REPEAT_INSTR,
+                'redcap_repeat_instance'   => $inst,
+                'q1a'                      => build_q1a_text($rid, $inst)
+            ];
+            logv("AUTO‑HEAL (scheduler): filled q1a for record {$rid} Day {$inst}");
+        }
+    }
+}
+
+if ($healRows) {
+    $resp = redcap_import_records($REDCAP_API_TOKEN, $REDCAP_API_URL, $healRows);
+    logv("AUTO‑HEAL (scheduler) resp: " . json_encode($resp));
+}
